@@ -42,7 +42,7 @@ For more information, see the documentation at:
 https://github.com/Lax3n/HumanTyping
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.3"
 __author__ = "HumanTyping Contributors"
 __license__ = "MIT"
 

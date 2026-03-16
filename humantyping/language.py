@@ -14,11 +14,17 @@ COMMON_WORDS = {
 
 # Common bigrams in English (for burst typing)
 COMMON_BIGRAMS = {
-    "th", "he", "in", "er", "an", "re", "on", "at", "en", "nd", "ti", "es", "or", "te", "of", "ed", "is", "it", "al", "ar", "st", "to", "nt", "ng", "se", "ha", "as", "ou", "io", "le", "ve", "co", "me", "de", "hi", "ri", "ro", "ic", "ne", "ea", "ra", "ce"
+    "th", "he", "in", "er", "an", "re", "on", "at", "en", "nd", "ti", "es",
+    "or", "te", "of", "ed", "is", "it", "al", "ar", "st", "to", "nt", "ng",
+    "se", "ha", "as", "ou", "io", "le", "ve", "co", "me", "de", "hi", "ri",
+    "ro", "ic", "ne", "ea", "ra", "ce"
 }
 
-def get_word_difficulty(word):
-    word_lower = word.lower().strip(".,!?;:")
+PUNCTUATION_CHARS = ".,!?;:'\"-()[]{}/"
+
+
+def get_word_difficulty(word: str) -> str:
+    word_lower = word.lower().strip(PUNCTUATION_CHARS)
     if word_lower in COMMON_WORDS:
         return "common"
     is_long = len(word_lower) > 8
@@ -27,6 +33,7 @@ def get_word_difficulty(word):
         return "complex"
     return "normal"
 
-def is_common_bigram(char1, char2):
+
+def is_common_bigram(char1: str, char2: str) -> bool:
     bigram = (char1 + char2).lower()
     return bigram in COMMON_BIGRAMS
