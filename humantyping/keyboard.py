@@ -103,15 +103,29 @@ class KeyboardLayout:
 
         return np.sqrt((r1 - r2) ** 2 + (c1 - c2) ** 2)
 
+    @staticmethod
+    def _char_class(char: str) -> str:
+        """Group keys so typos stay realistic (letters, digits, everything else)."""
+        if char.isalpha():
+            return "alpha"
+        if char.isdigit():
+            return "digit"
+        return "other"
+
     def get_random_neighbor(self, char: str) -> str:
-        """Return a random neighboring key, preserving case."""
+        """Return a random neighboring key of the same kind, preserving case."""
         was_upper = char.isupper()
+        target_class = self._char_class(self._normalize_char(char))
         neighbors = self.get_neighbor_keys(char)
-        if not neighbors:
-            flat_grid = [c for row in self.grid for c in row]
-            result = np.random.choice(flat_grid)
-        else:
+        same_class = [n for n in neighbors if self._char_class(n) == target_class]
+
+        if same_class:
+            result = np.random.choice(same_class)
+        elif neighbors:
             result = np.random.choice(neighbors)
+        else:
+            return char
+
         return result.upper() if was_upper else result
 
     def is_direct_accent(self, char: str) -> bool:
