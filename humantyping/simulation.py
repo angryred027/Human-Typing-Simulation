@@ -99,6 +99,6 @@ def demo_single_run(target_text: str, wpm: float) -> None:
     print(f"Total Simulated Time: {total_time:.4f}s")
 
     # Show errors
-    errors = [h for h in history if "ERROR" in h[1] or "SWAP" in h[1]]
+    errors = [h for h in history if "ERROR" in h[1] or "SWAP" in h[1] or "SHIFT_HELD" in h[1]]
     if errors:
         print(f"Errors made and corrected: {len(errors)}")

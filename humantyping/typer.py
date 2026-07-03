@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from .config import (
     DEFAULT_WPM, WPM_STD, AVG_WORD_LENGTH,
     PROB_ERROR, PROB_SWAP_ERROR, PROB_NOTICE_ERROR,
+    PROB_MISSED_SHIFT, PROB_EXTRA_SHIFT, PROB_SHIFT_HELD,
     SPEED_BOOST_COMMON_WORD, SPEED_PENALTY_COMPLEX_WORD,
     SPEED_BOOST_CLOSE_KEYS, SPEED_BOOST_BIGRAM,
     TIME_KEYSTROKE_STD, TIME_BACKSPACE_MEAN, TIME_BACKSPACE_STD,
@@ -217,6 +218,30 @@ class MarkovTyper:
                     self.state.mental_cursor_pos += 2
                     return event
 
+        # Shift Held Too Long (Anticipation)
+        # An uppercase letter whose Shift lingers onto the next letter, which
+        # should be lowercase but comes out capitalized. Example: "The" -> "THe".
+        if len(self.target_text) > self.state.mental_cursor_pos + 1:
+            char_after = self.target_text[self.state.mental_cursor_pos + 1]
+            if char_intended.isupper() and char_after.isalpha() and char_after.islower():
+                if np.random.random() < PROB_SHIFT_HELD:
+                    # Type the intended uppercase letter correctly...
+                    dt1 = self._calculate_keystroke_time(char_intended)
+                    self.state.total_time += dt1
+                    self.state.current_text += char_intended
+
+                    # then the next letter, still capitalized (Shift not yet released).
+                    shifted = char_after.upper()
+                    dt2 = self._calculate_keystroke_time(shifted)
+                    self.state.total_time += dt2
+                    self.state.current_text += shifted
+
+                    self.state.last_char_typed = shifted
+                    event = (self.state.total_time, f"TYPED_SHIFT_HELD '{char_intended}{shifted}'", self.state.current_text)
+                    self.state.history.append(event)
+                    self.state.mental_cursor_pos += 2
+                    return event
+
         # Normal Typing (Success or Error)
         current_prob_error = PROB_ERROR
         word_diff = get_word_difficulty(self._get_current_word_context() or "")
@@ -227,9 +252,20 @@ class MarkovTyper:
         if self.keyboard.is_composed_accent(char_intended):
             current_prob_error *= COMPOSED_ACCENT_ERROR_MULT
 
-        if np.random.random() < current_prob_error:
-            # Generate Error
+        # Case error (Shift mistake): the correct letter with the wrong case,
+        # e.g. a forgotten Shift ("The" -> "the") or an accidental one ("hi" -> "Hi").
+        case_error_prob = 0.0
+        if char_intended.isalpha() and char_intended.swapcase() != char_intended:
+            case_error_prob = PROB_MISSED_SHIFT if char_intended.isupper() else PROB_EXTRA_SHIFT
+
+        wrong_char = None
+        if case_error_prob and np.random.random() < case_error_prob:
+            wrong_char = char_intended.swapcase()
+        elif np.random.random() < current_prob_error:
             wrong_char = self.keyboard.get_random_neighbor(char_intended)
+
+        if wrong_char is not None:
+            # Generate Error
             dt = self._calculate_keystroke_time(wrong_char)
             self.state.total_time += dt
             self.state.current_text += wrong_char

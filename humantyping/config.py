@@ -12,6 +12,12 @@ PROB_ERROR = 0.04
 PROB_SWAP_ERROR = 0.015
 PROB_NOTICE_ERROR = 0.85
 
+# Case errors (Shift mistakes on letters) — correct letter, wrong case.
+# Forgetting Shift is much more common than an accidental Shift press.
+PROB_MISSED_SHIFT = 0.02   # uppercase intended, typed lowercase ("The" -> "the")
+PROB_EXTRA_SHIFT = 0.005   # lowercase intended, typed uppercase ("hello" -> "Hello")
+PROB_SHIFT_HELD = 0.01     # Shift released late: next letter also capitalized ("The" -> "THe")
+
 # Correction probabilities
 DRIFT_CORRECTION_PROB = 0.8  # Probability to notice error at distance >= 2
 
