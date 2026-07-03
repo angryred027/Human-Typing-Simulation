@@ -62,7 +62,7 @@ class HumanTyper:
 
             if "BACKSPACE" in action:
                 await page_element.press("Backspace")
-            elif "TYPED_SWAP" in action or "TYPED_SHIFT_HELD" in action:
+            elif "TYPED_SWAP" in action:
                 for char in _extract_char(action):
                     await page_element.press(char)
             elif "TYPED_ERROR" in action:
@@ -107,7 +107,7 @@ class HumanTyper:
             actions = ActionChains(driver)
             if "BACKSPACE" in action:
                 actions.send_keys(Keys.BACK_SPACE).perform()
-            elif "TYPED_SWAP" in action or "TYPED_SHIFT_HELD" in action:
+            elif "TYPED_SWAP" in action:
                 for char in _extract_char(action):
                     actions.send_keys(char)
                 actions.perform()
@@ -147,7 +147,7 @@ class HumanTyper:
 
             if "BACKSPACE" in action:
                 selenium_element.send_keys(Keys.BACK_SPACE)
-            elif "TYPED_SWAP" in action or "TYPED_SHIFT_HELD" in action:
+            elif "TYPED_SWAP" in action:
                 for char in _extract_char(action):
                     selenium_element.send_keys(char)
             elif "TYPED" in action:  # Handles TYPED, TYPED_ERROR

@@ -218,30 +218,6 @@ class MarkovTyper:
                     self.state.mental_cursor_pos += 2
                     return event
 
-        # Shift Held Too Long (Anticipation)
-        # An uppercase letter whose Shift lingers onto the next letter, which
-        # should be lowercase but comes out capitalized. Example: "The" -> "THe".
-        if len(self.target_text) > self.state.mental_cursor_pos + 1:
-            char_after = self.target_text[self.state.mental_cursor_pos + 1]
-            if char_intended.isupper() and char_after.isalpha() and char_after.islower():
-                if np.random.random() < PROB_SHIFT_HELD:
-                    # Type the intended uppercase letter correctly...
-                    dt1 = self._calculate_keystroke_time(char_intended)
-                    self.state.total_time += dt1
-                    self.state.current_text += char_intended
-
-                    # then the next letter, still capitalized (Shift not yet released).
-                    shifted = char_after.upper()
-                    dt2 = self._calculate_keystroke_time(shifted)
-                    self.state.total_time += dt2
-                    self.state.current_text += shifted
-
-                    self.state.last_char_typed = shifted
-                    event = (self.state.total_time, f"TYPED_SHIFT_HELD '{char_intended}{shifted}'", self.state.current_text)
-                    self.state.history.append(event)
-                    self.state.mental_cursor_pos += 2
-                    return event
-
         # Normal Typing (Success or Error)
         current_prob_error = PROB_ERROR
         word_diff = get_word_difficulty(self._get_current_word_context() or "")
@@ -252,11 +228,19 @@ class MarkovTyper:
         if self.keyboard.is_composed_accent(char_intended):
             current_prob_error *= COMPOSED_ACCENT_ERROR_MULT
 
-        # Case error (Shift mistake): the correct letter with the wrong case,
-        # e.g. a forgotten Shift ("The" -> "the") or an accidental one ("hi" -> "Hi").
+        # Case errors (Shift mistakes): the correct letter with the wrong case.
         case_error_prob = 0.0
         if char_intended.isalpha() and char_intended.swapcase() != char_intended:
-            case_error_prob = PROB_MISSED_SHIFT if char_intended.isupper() else PROB_EXTRA_SHIFT
+            if char_intended.isupper():
+                # Forgot to press Shift ("The" -> "the").
+                case_error_prob = PROB_MISSED_SHIFT
+            else:
+                prev = self.state.last_char_typed
+                if prev is not None and prev.isalpha() and prev.isupper():
+                    case_error_prob = PROB_SHIFT_HELD
+                else:
+                    # A rarer accidental Shift with no uppercase before it ("hi" -> "Hi").
+                    case_error_prob = PROB_EXTRA_SHIFT
 
         wrong_char = None
         if case_error_prob and np.random.random() < case_error_prob:
