@@ -7,18 +7,27 @@ WPM_STD = 10  # WPM standard deviation
 # Average word length (standard)
 AVG_WORD_LENGTH = 5
 
+
 # Probabilities
-PROB_ERROR = 0.04
-PROB_SWAP_ERROR = 0.015
+PROB_ERROR = 0.005         # XY: substitution with a neighbouring key
+PROB_SWAP_ERROR = 0.003   # SWAP: two adjacent letters interchanged ("the" -> "hte")
+PROB_OMISSION = 0.019     # OX: a letter is skipped ("major" -> "maor")
+PROB_INSERTION = 0.010    # XO: an extra neighbouring key is added ("this" -> "thjis")
+PROB_DOUBLING = 0.006     # DOUB12: a single letter is typed twice ("operation" -> "opperation")
 PROB_NOTICE_ERROR = 0.85
+
+# Case errors (Shift mistakes on letters) — correct letter, wrong case.
+PROB_MISSED_SHIFT = 0.02   # uppercase intended, typed lowercase ("The" -> "the")
+PROB_SHIFT_HELD = 0.01     # Shift released late after an uppercase key ("The" -> "THe")
 
 # Correction probabilities
 DRIFT_CORRECTION_PROB = 0.8  # Probability to notice error at distance >= 2
 
 # Error multipliers by context
 COMPLEX_WORD_ERROR_MULT = 1.5
-COMMON_WORD_ERROR_MULT = 0.5
+COMMON_WORD_ERROR_MULT = 0.3
 COMPOSED_ACCENT_ERROR_MULT = 2.0
+PUNCTUATION_ERROR_MULT = 2.5
 
 # Speed factors (multipliers on keystroke time, < 1.0 = faster)
 SPEED_BOOST_COMMON_WORD = 0.6

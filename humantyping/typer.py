@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from .config import (
     DEFAULT_WPM, WPM_STD, AVG_WORD_LENGTH,
     PROB_ERROR, PROB_SWAP_ERROR, PROB_NOTICE_ERROR,
+    PROB_MISSED_SHIFT, PROB_SHIFT_HELD,
+    PROB_OMISSION, PROB_INSERTION, PROB_DOUBLING,
     SPEED_BOOST_COMMON_WORD, SPEED_PENALTY_COMPLEX_WORD,
     SPEED_BOOST_CLOSE_KEYS, SPEED_BOOST_BIGRAM,
     TIME_KEYSTROKE_STD, TIME_BACKSPACE_MEAN, TIME_BACKSPACE_STD,
@@ -14,7 +16,7 @@ from .config import (
     TIME_UPPERCASE_PENALTY, TIME_SPACE_PAUSE_MEAN, TIME_SPACE_PAUSE_STD,
     FATIGUE_FACTOR, FATIGUE_CAP,
     DRIFT_CORRECTION_PROB, COMPLEX_WORD_ERROR_MULT,
-    COMMON_WORD_ERROR_MULT, COMPOSED_ACCENT_ERROR_MULT,
+    COMMON_WORD_ERROR_MULT, COMPOSED_ACCENT_ERROR_MULT, PUNCTUATION_ERROR_MULT,
     FAR_KEY_PENALTY, FAR_KEY_THRESHOLD, CLOSE_KEY_THRESHOLD,
     MIN_KEYSTROKE_TIME, MIN_REACTION_TIME, MIN_BACKSPACE_TIME,
     MIN_SPEED_MULTIPLIER,
@@ -217,6 +219,44 @@ class MarkovTyper:
                     self.state.mental_cursor_pos += 2
                     return event
 
+        # Omission (OX): skip a letter, typing the next one in its place ("major" -> "maor")
+        if char_intended.isalpha() and self.state.mental_cursor_pos + 1 < len(self.target_text):
+            char_after = self.target_text[self.state.mental_cursor_pos + 1]
+            if char_after != ' ' and np.random.random() < PROB_OMISSION:
+                dt = self._calculate_keystroke_time(char_after)
+                self.state.total_time += dt
+                self.state.current_text += char_after
+                self.state.last_char_typed = char_after
+                event = (self.state.total_time, f"TYPED_OMIT '{char_after}'", self.state.current_text)
+                self.state.history.append(event)
+                self.state.mental_cursor_pos += 2  # both the skipped and placed char are consumed
+                return event
+
+        # Insertion (XO): an extra neighbouring key before the intended letter ("this" -> "thjis")
+        if char_intended != ' ' and np.random.random() < PROB_INSERTION:
+            extra = self.keyboard.get_random_neighbor(char_intended)
+            dt = self._calculate_keystroke_time(extra)
+            self.state.total_time += dt
+            self.state.current_text += extra
+            self.state.last_char_typed = extra
+            event = (self.state.total_time, f"TYPED_INSERT '{extra}'", self.state.current_text)
+            self.state.history.append(event)
+            return event
+
+        # Doubling (DOUB12): type a single letter twice ("operation" -> "opperation")
+        if char_intended.isalpha() and np.random.random() < PROB_DOUBLING:
+            dt1 = self._calculate_keystroke_time(char_intended)
+            self.state.total_time += dt1
+            self.state.current_text += char_intended
+            dt2 = self._calculate_keystroke_time(char_intended)
+            self.state.total_time += dt2
+            self.state.current_text += char_intended
+            self.state.last_char_typed = char_intended
+            event = (self.state.total_time, f"TYPED_DOUBLE '{char_intended}{char_intended}'", self.state.current_text)
+            self.state.history.append(event)
+            self.state.mental_cursor_pos += 1  # only the first copy is the intended letter
+            return event
+
         # Normal Typing (Success or Error)
         current_prob_error = PROB_ERROR
         word_diff = get_word_difficulty(self._get_current_word_context() or "")
@@ -226,10 +266,29 @@ class MarkovTyper:
             current_prob_error *= COMMON_WORD_ERROR_MULT
         if self.keyboard.is_composed_accent(char_intended):
             current_prob_error *= COMPOSED_ACCENT_ERROR_MULT
+        elif not char_intended.isalnum() and char_intended != ' ':
+            current_prob_error *= PUNCTUATION_ERROR_MULT
 
-        if np.random.random() < current_prob_error:
-            # Generate Error
+        # Case errors (Shift mistakes): the correct letter with the wrong case.
+        case_error_prob = 0.0
+        if char_intended.isalpha() and char_intended.swapcase() != char_intended:
+            if char_intended.isupper():
+                # Forgot to press Shift ("The" -> "the").
+                case_error_prob = PROB_MISSED_SHIFT
+            else:
+                # Shift held too long after an uppercase key ("The" -> "THe").
+                prev = self.state.last_char_typed
+                if prev is not None and prev.isalpha() and prev.isupper():
+                    case_error_prob = PROB_SHIFT_HELD
+
+        wrong_char = None
+        if case_error_prob and np.random.random() < case_error_prob:
+            wrong_char = char_intended.swapcase()
+        elif np.random.random() < current_prob_error:
             wrong_char = self.keyboard.get_random_neighbor(char_intended)
+
+        if wrong_char is not None:
+            # Generate Error
             dt = self._calculate_keystroke_time(wrong_char)
             self.state.total_time += dt
             self.state.current_text += wrong_char
