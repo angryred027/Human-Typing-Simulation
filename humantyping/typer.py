@@ -11,14 +11,14 @@ from .config import (
     SPEED_BOOST_COMMON_WORD, SPEED_PENALTY_COMPLEX_WORD,
     SPEED_BOOST_CLOSE_KEYS, SPEED_BOOST_BIGRAM,
     TIME_KEYSTROKE_STD, TIME_BACKSPACE_MEAN, TIME_BACKSPACE_STD,
-    TIME_REACTION_MEAN, TIME_REACTION_STD,
+    TIME_REACTION_MEAN, TIME_REACTION_STD, TIME_ARROW_MEAN, TIME_ARROW_STD,
     TIME_DIRECT_ACCENT_PENALTY, TIME_COMPOSED_ACCENT_PENALTY,
     TIME_UPPERCASE_PENALTY, TIME_SPACE_PAUSE_MEAN, TIME_SPACE_PAUSE_STD,
     FATIGUE_FACTOR, FATIGUE_CAP,
-    DRIFT_CORRECTION_PROB, COMPLEX_WORD_ERROR_MULT,
+    DRIFT_CORRECTION_PROB, PROB_WORD_LEVEL_CORRECTION, COMPLEX_WORD_ERROR_MULT,
     COMMON_WORD_ERROR_MULT, COMPOSED_ACCENT_ERROR_MULT, PUNCTUATION_ERROR_MULT,
     FAR_KEY_PENALTY, FAR_KEY_THRESHOLD, CLOSE_KEY_THRESHOLD,
-    MIN_KEYSTROKE_TIME, MIN_REACTION_TIME, MIN_BACKSPACE_TIME,
+    MIN_KEYSTROKE_TIME, MIN_REACTION_TIME, MIN_BACKSPACE_TIME, MIN_ARROW_TIME,
     MIN_SPEED_MULTIPLIER,
 )
 from .keyboard import KeyboardLayout
@@ -34,6 +34,9 @@ class TypingState:
     last_char_typed: str | None = None
     fatigue_multiplier: float = 1.0
     mental_cursor_pos: int = 0
+    caret_pos: int = 0
+    word_fix_pos: int | None = None
+    word_fix_phase: str = "seek"
 
 
 class MarkovTyper:
@@ -102,6 +105,10 @@ class MarkovTyper:
         return max(MIN_KEYSTROKE_TIME, dt)
 
     def step(self) -> tuple[float, str, str] | None:
+        # Continue an in-progress word-level (arrow-key) correction, if any.
+        if self.state.word_fix_pos is not None:
+            return self._word_correction_step()
+
         # 1. Check for completion
         if self.state.current_text == self.target_text:
             return None
@@ -159,7 +166,19 @@ class MarkovTyper:
                     dt = np.random.normal(TIME_REACTION_MEAN, TIME_REACTION_STD)
                     self.state.total_time += max(MIN_REACTION_TIME, dt)
 
-                # Perform Backspace
+                # Deferred (word-level) correction: if correct characters were
+                # typed past the error and it is a lone substitution, navigate
+                # back to it with arrow keys and fix it in place.
+                distance = len(self.state.current_text) - first_error_pos
+                if ("BACKSPACE" not in last_action and distance >= 2
+                        and self._is_clean_substitution(first_error_pos)
+                        and np.random.random() < PROB_WORD_LEVEL_CORRECTION):
+                    self.state.word_fix_pos = first_error_pos
+                    self.state.word_fix_phase = "seek"
+                    self.state.caret_pos = len(self.state.current_text)
+                    return self._word_correction_step()
+
+                # Immediate (character-level) correction: backspace from the end.
                 dt = max(MIN_BACKSPACE_TIME, np.random.normal(TIME_BACKSPACE_MEAN, TIME_BACKSPACE_STD))
                 self.state.total_time += dt
                 self.state.current_text = self.state.current_text[:-1]
@@ -307,6 +326,57 @@ class MarkovTyper:
             self.state.mental_cursor_pos += 1
 
         return event
+
+    def _is_clean_substitution(self, err: int) -> bool:
+        """True if the divergence is a single wrong character with the rest of
+        the typed text still aligned to the target (fixable in place)."""
+        ct, tt = self.state.current_text, self.target_text
+        return len(ct) <= len(tt) and ct[err + 1:] == tt[err + 1:len(ct)]
+
+    def _word_correction_step(self) -> tuple[float, str, str]:
+        """Emit one keystroke of a word-level correction: arrow-left to the
+        error, replace the wrong character, then arrow-right back to resume."""
+        e = self.state.word_fix_pos
+        ct = self.state.current_text
+
+        if self.state.word_fix_phase == "seek":
+            # Navigate left until the caret sits just past the wrong character.
+            if self.state.caret_pos > e + 1:
+                self.state.caret_pos -= 1
+                self.state.total_time += max(MIN_ARROW_TIME, np.random.normal(TIME_ARROW_MEAN, TIME_ARROW_STD))
+                event = (self.state.total_time, "ARROW_LEFT", ct)
+            else:
+                self.state.total_time += max(MIN_BACKSPACE_TIME, np.random.normal(TIME_BACKSPACE_MEAN, TIME_BACKSPACE_STD))
+                self.state.current_text = ct[:e] + ct[e + 1:]
+                self.state.caret_pos = e
+                self.state.word_fix_phase = "type"
+                event = (self.state.total_time, "BACKSPACE", self.state.current_text)
+            self.state.history.append(event)
+            return event
+
+        if self.state.word_fix_phase == "type":
+            correct = self.target_text[e]
+            self.state.total_time += self._calculate_keystroke_time(correct)
+            self.state.current_text = ct[:e] + correct + ct[e:]
+            self.state.caret_pos = e + 1
+            self.state.last_char_typed = correct
+            self.state.word_fix_phase = "return"
+            event = (self.state.total_time, f"TYPED '{correct}'", self.state.current_text)
+            self.state.history.append(event)
+            return event
+
+        # phase == "return": navigate right back to the end, then resume typing.
+        if self.state.caret_pos < len(ct):
+            self.state.caret_pos += 1
+            self.state.total_time += max(MIN_ARROW_TIME, np.random.normal(TIME_ARROW_MEAN, TIME_ARROW_STD))
+            event = (self.state.total_time, "ARROW_RIGHT", ct)
+            self.state.history.append(event)
+            return event
+
+        self.state.word_fix_pos = None
+        self.state.word_fix_phase = "seek"
+        self.state.mental_cursor_pos = len(ct)
+        return self.step()
 
     def run(self) -> tuple[float, list[tuple[float, str, str]]]:
         steps = 0
