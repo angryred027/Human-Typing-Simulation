@@ -62,6 +62,10 @@ class HumanTyper:
 
             if "BACKSPACE" in action:
                 await page_element.press("Backspace")
+            elif "ARROW_LEFT" in action:
+                await page_element.press("ArrowLeft")
+            elif "ARROW_RIGHT" in action:
+                await page_element.press("ArrowRight")
             elif "TYPED_SWAP" in action or "TYPED_DOUBLE" in action:
                 for char in _extract_char(action):
                     await page_element.press(char)
@@ -107,6 +111,10 @@ class HumanTyper:
             actions = ActionChains(driver)
             if "BACKSPACE" in action:
                 actions.send_keys(Keys.BACK_SPACE).perform()
+            elif "ARROW_LEFT" in action:
+                actions.send_keys(Keys.ARROW_LEFT).perform()
+            elif "ARROW_RIGHT" in action:
+                actions.send_keys(Keys.ARROW_RIGHT).perform()
             elif "TYPED_SWAP" in action or "TYPED_DOUBLE" in action:
                 for char in _extract_char(action):
                     actions.send_keys(char)
@@ -147,6 +155,10 @@ class HumanTyper:
 
             if "BACKSPACE" in action:
                 selenium_element.send_keys(Keys.BACK_SPACE)
+            elif "ARROW_LEFT" in action:
+                selenium_element.send_keys(Keys.ARROW_LEFT)
+            elif "ARROW_RIGHT" in action:
+                selenium_element.send_keys(Keys.ARROW_RIGHT)
             elif "TYPED_SWAP" in action or "TYPED_DOUBLE" in action:
                 for char in _extract_char(action):
                     selenium_element.send_keys(char)
