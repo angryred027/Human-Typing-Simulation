@@ -9,8 +9,8 @@ from .config import (
     PROB_MISSED_SHIFT, PROB_SHIFT_HELD,
     PROB_OMISSION, PROB_INSERTION, PROB_DOUBLING,
     SPEED_BOOST_COMMON_WORD, SPEED_PENALTY_COMPLEX_WORD,
-    SPEED_BOOST_CLOSE_KEYS, SPEED_BOOST_BIGRAM,
-    TIME_KEYSTROKE_STD, TIME_BACKSPACE_MEAN, TIME_BACKSPACE_STD,
+    SPEED_BOOST_REPETITION, SPEED_BOOST_CLOSE_KEYS, SPEED_BOOST_BIGRAM,
+    KEYSTROKE_LOG_SIGMA, TIME_BACKSPACE_MEAN, TIME_BACKSPACE_STD,
     TIME_REACTION_MEAN, TIME_REACTION_STD, TIME_ARROW_MEAN, TIME_ARROW_STD,
     TIME_DIRECT_ACCENT_PENALTY, TIME_COMPOSED_ACCENT_PENALTY,
     TIME_UPPERCASE_PENALTY, TIME_SPACE_PAUSE_MEAN, TIME_SPACE_PAUSE_STD,
@@ -80,7 +80,9 @@ class MarkovTyper:
                 keystroke_time *= SPEED_PENALTY_COMPLEX_WORD
 
         if self.state.last_char_typed:
-            if is_common_bigram(self.state.last_char_typed, char_to_type):
+            if self.state.last_char_typed.lower() == char_to_type.lower():
+                keystroke_time *= SPEED_BOOST_REPETITION  # letter repetition
+            elif is_common_bigram(self.state.last_char_typed, char_to_type):
                 keystroke_time *= SPEED_BOOST_BIGRAM
             else:
                 dist = self.keyboard.get_distance(self.state.last_char_typed, char_to_type)
@@ -101,7 +103,8 @@ class MarkovTyper:
         # Apply floor to prevent unrealistic stacking of boosts
         keystroke_time = max(MIN_SPEED_MULTIPLIER * self.base_keystroke_time, keystroke_time)
 
-        dt = np.random.normal(keystroke_time, TIME_KEYSTROKE_STD)
+        # Mean-preserving log-normal jitter (right-skewed, like real IKI)
+        dt = keystroke_time * np.random.lognormal(-0.5 * KEYSTROKE_LOG_SIGMA ** 2, KEYSTROKE_LOG_SIGMA)
         return max(MIN_KEYSTROKE_TIME, dt)
 
     def step(self) -> tuple[float, str, str] | None:
@@ -205,7 +208,7 @@ class MarkovTyper:
         if not self.keyboard.has_key(char_intended) and char_intended != ' ':
             self.state.fatigue_multiplier = min(FATIGUE_CAP, self.state.fatigue_multiplier * FATIGUE_FACTOR)
             dt = self.base_keystroke_time * self.state.fatigue_multiplier
-            dt = max(MIN_KEYSTROKE_TIME, np.random.normal(dt, TIME_KEYSTROKE_STD))
+            dt = max(MIN_KEYSTROKE_TIME, dt * np.random.lognormal(-0.5 * KEYSTROKE_LOG_SIGMA ** 2, KEYSTROKE_LOG_SIGMA))
             self.state.total_time += dt
             self.state.current_text += char_intended
             self.state.last_char_typed = char_intended
