@@ -5,6 +5,7 @@ import asyncio
 from typing import Any
 
 from .typer import MarkovTyper
+from .config import DEFAULT_RHYTHM
 
 
 def _extract_char(action: str) -> str:
@@ -20,11 +21,12 @@ class HumanTyper:
     like Playwright, Selenium, or Appium.
     """
 
-    def __init__(self, wpm: float = 60.0, layout: str = "qwerty") -> None:
+    def __init__(self, wpm: float = 60.0, layout: str = "qwerty", rhythm: str = DEFAULT_RHYTHM) -> None:
         if not isinstance(wpm, (int, float)) or wpm <= 0:
             raise ValueError("wpm must be a positive number")
         self.wpm = wpm
         self.layout = layout
+        self.rhythm = rhythm
 
     async def type(self, page_element: Any, text: str) -> None:
         """
@@ -49,7 +51,7 @@ class HumanTyper:
         if not isinstance(text, str) or len(text) == 0:
             raise ValueError("text must be a non-empty string")
 
-        typer = MarkovTyper(text, target_wpm=self.wpm, layout=self.layout)
+        typer = MarkovTyper(text, target_wpm=self.wpm, layout=self.layout, rhythm=self.rhythm)
         _, history = typer.run()
 
         last_time = 0.0
@@ -97,7 +99,7 @@ class HumanTyper:
         from selenium.webdriver.common.action_chains import ActionChains
         from selenium.webdriver.common.keys import Keys
 
-        typer = MarkovTyper(text, target_wpm=self.wpm, layout=self.layout)
+        typer = MarkovTyper(text, target_wpm=self.wpm, layout=self.layout, rhythm=self.rhythm)
         _, history = typer.run()
 
         last_time = 0.0
@@ -142,7 +144,7 @@ class HumanTyper:
 
         from selenium.webdriver.common.keys import Keys
 
-        typer = MarkovTyper(text, target_wpm=self.wpm, layout=self.layout)
+        typer = MarkovTyper(text, target_wpm=self.wpm, layout=self.layout, rhythm=self.rhythm)
         _, history = typer.run()
 
         last_time = 0.0

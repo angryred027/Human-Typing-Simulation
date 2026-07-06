@@ -13,13 +13,14 @@ from .config import (
     KEYSTROKE_LOG_SIGMA, TIME_BACKSPACE_MEAN, TIME_BACKSPACE_STD,
     TIME_REACTION_MEAN, TIME_REACTION_STD, TIME_ARROW_MEAN, TIME_ARROW_STD,
     TIME_DIRECT_ACCENT_PENALTY, TIME_COMPOSED_ACCENT_PENALTY,
-    TIME_UPPERCASE_PENALTY, TIME_SPACE_PAUSE_MEAN, TIME_SPACE_PAUSE_STD,
+    TIME_UPPERCASE_PENALTY,
     FATIGUE_FACTOR, FATIGUE_CAP,
     DRIFT_CORRECTION_PROB, PROB_WORD_LEVEL_CORRECTION, COMPLEX_WORD_ERROR_MULT,
     COMMON_WORD_ERROR_MULT, COMPOSED_ACCENT_ERROR_MULT, PUNCTUATION_ERROR_MULT,
     FAR_KEY_PENALTY, FAR_KEY_THRESHOLD, CLOSE_KEY_THRESHOLD,
     MIN_KEYSTROKE_TIME, MIN_REACTION_TIME, MIN_BACKSPACE_TIME, MIN_ARROW_TIME,
     MIN_SPEED_MULTIPLIER,
+    RHYTHM_PRESETS, DEFAULT_RHYTHM, FLUENCY_BURST_LEN,
 )
 from .keyboard import KeyboardLayout
 from .language import get_word_difficulty, is_common_bigram
@@ -37,17 +38,22 @@ class TypingState:
     caret_pos: int = 0
     word_fix_pos: int | None = None
     word_fix_phase: str = "seek"
+    fluency_chars: int = 0
 
 
 class MarkovTyper:
-    def __init__(self, target_text: str, target_wpm: float = DEFAULT_WPM, layout: str = "qwerty"):
+    def __init__(self, target_text: str, target_wpm: float = DEFAULT_WPM, layout: str = "qwerty",
+                 rhythm: str = DEFAULT_RHYTHM):
         if not isinstance(target_text, str) or len(target_text) == 0:
             raise ValueError("target_text must be a non-empty string")
         if not isinstance(target_wpm, (int, float)) or target_wpm <= 0:
             raise ValueError("target_wpm must be a positive number")
+        if rhythm not in RHYTHM_PRESETS:
+            raise ValueError(f"rhythm must be one of {sorted(RHYTHM_PRESETS)}")
 
         self.target_text = target_text
         self.keyboard = KeyboardLayout(layout)
+        self.rhythm = RHYTHM_PRESETS[rhythm]
         self.state = TypingState(target_text=target_text)
 
         self.session_wpm = np.random.normal(target_wpm, WPM_STD)
@@ -67,6 +73,26 @@ class MarkovTyper:
         while end < len(self.target_text) and self.target_text[end] != ' ':
             end += 1
         return self.target_text[start:end]
+
+    def _transition_kind(self) -> str:
+        """Classify the boundary being crossed, from the previous typed char."""
+        prev = self.state.last_char_typed
+        if prev is None:
+            return "start"
+        if prev == '\n':
+            return "paragraph"
+        if prev == ' ':
+            before = self.state.current_text[-2] if len(self.state.current_text) >= 2 else ''
+            return "sentence" if before in '.!?' else "word"
+        return "within"
+
+    def _boundary_pause(self) -> float:
+        """Mixture pause drawn from the log-normal component for this boundary."""
+        kind = self._transition_kind()
+        if kind in ("word", "sentence", "paragraph"):
+            median, sigma = self.rhythm[f"{kind}_pause"]
+            return median * np.random.lognormal(0.0, sigma)
+        return 0.0
 
     def _calculate_keystroke_time(self, char_to_type: str) -> float:
         keystroke_time = self.base_keystroke_time * self.state.fatigue_multiplier
@@ -91,9 +117,7 @@ class MarkovTyper:
                 elif dist > FAR_KEY_THRESHOLD:
                     keystroke_time *= FAR_KEY_PENALTY
 
-        if char_to_type == ' ':
-            keystroke_time += np.random.normal(TIME_SPACE_PAUSE_MEAN, TIME_SPACE_PAUSE_STD)
-        elif self.keyboard.is_composed_accent(char_to_type):
+        if self.keyboard.is_composed_accent(char_to_type):
             keystroke_time += TIME_COMPOSED_ACCENT_PENALTY
         elif self.keyboard.is_direct_accent(char_to_type):
             keystroke_time += TIME_DIRECT_ACCENT_PENALTY
@@ -105,6 +129,7 @@ class MarkovTyper:
 
         # Mean-preserving log-normal jitter (right-skewed, like real IKI)
         dt = keystroke_time * np.random.lognormal(-0.5 * KEYSTROKE_LOG_SIGMA ** 2, KEYSTROKE_LOG_SIGMA)
+        dt += self._boundary_pause()  # mixture pause at word/sentence/paragraph boundary
         return max(MIN_KEYSTROKE_TIME, dt)
 
     def step(self) -> tuple[float, str, str] | None:
@@ -219,12 +244,20 @@ class MarkovTyper:
 
         self.state.fatigue_multiplier = min(FATIGUE_CAP, self.state.fatigue_multiplier * FATIGUE_FACTOR)
 
+        # Thinking-then-fluent: a planning pause precedes a cleaner burst.
+        if self._transition_kind() in ("sentence", "paragraph"):
+            self.state.fluency_chars = FLUENCY_BURST_LEN
+        error_scale = 1.0
+        if self.state.fluency_chars > 0:
+            error_scale = self.rhythm["planning_fluency"]
+            self.state.fluency_chars -= 1
+
         # Swap Error (Anticipation)
         # Example: "the" -> "hte". We type char_after first, then char_intended.
         if len(self.target_text) > self.state.mental_cursor_pos + 1:
             char_after = self.target_text[self.state.mental_cursor_pos + 1]
             if char_after != ' ' and char_after != char_intended:
-                if np.random.random() < PROB_SWAP_ERROR:
+                if np.random.random() < PROB_SWAP_ERROR * error_scale:
                     # Type the anticipated character first
                     dt1 = self._calculate_keystroke_time(char_after)
                     self.state.total_time += dt1
@@ -244,7 +277,7 @@ class MarkovTyper:
         # Omission (OX): skip a letter, typing the next one in its place ("major" -> "maor")
         if char_intended.isalpha() and self.state.mental_cursor_pos + 1 < len(self.target_text):
             char_after = self.target_text[self.state.mental_cursor_pos + 1]
-            if char_after != ' ' and np.random.random() < PROB_OMISSION:
+            if char_after != ' ' and np.random.random() < PROB_OMISSION * error_scale:
                 dt = self._calculate_keystroke_time(char_after)
                 self.state.total_time += dt
                 self.state.current_text += char_after
@@ -255,7 +288,7 @@ class MarkovTyper:
                 return event
 
         # Insertion (XO): an extra neighbouring key before the intended letter ("this" -> "thjis")
-        if char_intended != ' ' and np.random.random() < PROB_INSERTION:
+        if char_intended != ' ' and np.random.random() < PROB_INSERTION * error_scale:
             extra = self.keyboard.get_random_neighbor(char_intended)
             dt = self._calculate_keystroke_time(extra)
             self.state.total_time += dt
@@ -266,7 +299,7 @@ class MarkovTyper:
             return event
 
         # Doubling (DOUB12): type a single letter twice ("operation" -> "opperation")
-        if char_intended.isalpha() and np.random.random() < PROB_DOUBLING:
+        if char_intended.isalpha() and np.random.random() < PROB_DOUBLING * error_scale:
             dt1 = self._calculate_keystroke_time(char_intended)
             self.state.total_time += dt1
             self.state.current_text += char_intended
@@ -290,6 +323,7 @@ class MarkovTyper:
             current_prob_error *= COMPOSED_ACCENT_ERROR_MULT
         elif not char_intended.isalnum() and char_intended != ' ':
             current_prob_error *= PUNCTUATION_ERROR_MULT
+        current_prob_error *= error_scale
 
         # Case errors (Shift mistakes): the correct letter with the wrong case.
         case_error_prob = 0.0
@@ -302,6 +336,7 @@ class MarkovTyper:
                 prev = self.state.last_char_typed
                 if prev is not None and prev.isalpha() and prev.isupper():
                     case_error_prob = PROB_SHIFT_HELD
+        case_error_prob *= error_scale
 
         wrong_char = None
         if case_error_prob and np.random.random() < case_error_prob:
