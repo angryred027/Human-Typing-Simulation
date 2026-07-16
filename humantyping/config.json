@@ -1,0 +1,12 @@
+{
+  "wpm": 70.0,
+  "layout": "qwerty",
+  "rhythm": "messaging",
+  "base_error_rate": 0.03,
+  "prob_notice_error": 0.4,
+  "prob_word_level_correction": 0.7,
+  "start_delay": 3.0,
+  "hotkey": "shift+f10",
+  "graph_chars": 120,
+  "text": "feat: Add UI feature using Tkinter"
+}

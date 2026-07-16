@@ -1,15 +1,66 @@
-# Typing model configuration
+# Typing model configuration.
+# User-facing settings live in config.json; the research-derived model constants
+# stay here. See README for the config.json field specification.
 
-# Default average typing speed (words per minute)
-DEFAULT_WPM = 60
-WPM_STD = 10  # WPM standard deviation
+import json
+import os
+import sys
 
-# Average word length (standard)
+SETTINGS_DEFAULTS = {
+    "wpm": 60,
+    "layout": "qwerty",
+    "rhythm": "messaging",
+    "base_error_rate": 0.03,
+    "prob_notice_error": 0.4,
+    "prob_word_level_correction": 0.7,
+    "start_delay": 3.0,
+    "hotkey": "ctrl+alt+t",
+    "graph_chars": 120,
+    "text": "",
+}
+
+
+def config_path():
+    if getattr(sys, "frozen", False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, "config.json")
+
+
+def load_settings():
+    settings = dict(SETTINGS_DEFAULTS)
+    try:
+        with open(config_path(), encoding="utf-8") as f:
+            settings.update(json.load(f))
+    except (OSError, ValueError):
+        pass
+    return settings
+
+
+def save_settings(settings):
+    with open(config_path(), "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=2)
+
+
+_settings = load_settings()
+
+# --- user-facing (config.json) ---
+DEFAULT_WPM = _settings["wpm"]
+DEFAULT_LAYOUT = _settings["layout"]
+DEFAULT_RHYTHM = _settings["rhythm"]
+BASE_ERROR_RATE = _settings["base_error_rate"]
+PROB_NOTICE_ERROR = _settings["prob_notice_error"]
+PROB_WORD_LEVEL_CORRECTION = _settings["prob_word_level_correction"]
+START_DELAY = _settings["start_delay"]
+HOTKEY = _settings["hotkey"]
+
+# Average speed spread and word length
+WPM_STD = 10
 AVG_WORD_LENGTH = 5
 
-
-# Error probabilities.
-BASE_ERROR_RATE = 0.03
+# Structural error rates follow Dhakal et al. (CHI 2018, 136M keystrokes):
+# substitution (1.65%) > omission (0.8%) > insertion (0.67%); transposition rarest.
 PROB_ERROR = BASE_ERROR_RATE * 1.00       # XY: substitution with a neighbouring key
 PROB_OMISSION = BASE_ERROR_RATE * 0.48    # OX: a letter is skipped ("major" -> "maor")
 PROB_INSERTION = BASE_ERROR_RATE * 0.25   # XO: an extra neighbouring key ("this" -> "thjis")
@@ -21,11 +72,10 @@ PROB_MISSED_SHIFT = 0.02   # uppercase intended, typed lowercase ("The" -> "the"
 PROB_SHIFT_HELD = 0.01     # Shift released late after an uppercase key ("The" -> "THe")
 
 # Correction behaviour.
-PROB_NOTICE_ERROR = 0.4          # lower -> more errors deferred to word-level
-DRIFT_CORRECTION_PROB = 0.7
-PROB_WORD_LEVEL_CORRECTION = 0.7
+DRIFT_CORRECTION_PROB = 0.7  # Probability to notice error at distance >= 2
 
-# Error multipliers by context
+# Error multipliers by context. Letters and digits are low; punctuation and
+# other peripheral / shifted keys are struck less accurately.
 COMPLEX_WORD_ERROR_MULT = 1.5
 COMMON_WORD_ERROR_MULT = 0.1
 COMPOSED_ACCENT_ERROR_MULT = 2.0
@@ -96,5 +146,4 @@ RHYTHM_PRESETS = {
         "planning_fluency": 0.6,
     },
 }
-DEFAULT_RHYTHM = "messaging"
 FLUENCY_BURST_LEN = 6  # chars after a planning pause that stay cleaner
