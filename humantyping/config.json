@@ -8,5 +8,7 @@
   "start_delay": 3.0,
   "hotkey": "shift+f10",
   "graph_chars": 120,
-  "text": "feat: Add UI feature using Tkinter"
+  "coding_indent": "none",
+  "paraphrase_model_path": "D:/Workspace/AI,Automation/Human_Typing_Simulation/chatgpt_paraphraser_on_T5_base",
+  "text": "That wasn't the root cause. I noticed that the first language button disappears, not just the Previous button. Instead, there's an empty space at the end of the language button list in the swiper."
 }

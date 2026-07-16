@@ -16,6 +16,8 @@ SETTINGS_DEFAULTS = {
     "start_delay": 3.0,
     "hotkey": "ctrl+alt+t",
     "graph_chars": 120,
+    "coding_indent": "tab",
+    "paraphrase_model_path": "",
     "text": "",
 }
 
@@ -54,6 +56,8 @@ PROB_NOTICE_ERROR = _settings["prob_notice_error"]
 PROB_WORD_LEVEL_CORRECTION = _settings["prob_word_level_correction"]
 START_DELAY = _settings["start_delay"]
 HOTKEY = _settings["hotkey"]
+CODING_INDENT = _settings["coding_indent"]
+PARAPHRASE_MODEL_PATH = _settings["paraphrase_model_path"]
 
 # Average speed spread and word length
 WPM_STD = 10
@@ -140,10 +144,25 @@ RHYTHM_PRESETS = {
         "planning_fluency": 0.5,
     },
     "coding": {
-        "word_pause": (0.28, 0.6),
-        "sentence_pause": (0.7, 0.6),
-        "paragraph_pause": (1.6, 0.7),
+        "word_pause": (0.30, 0.6),
+        "sentence_pause": (0.9, 0.6),
+        "paragraph_pause": (2.6, 0.7),   # longer thinking breaks between lines
         "planning_fluency": 0.6,
     },
 }
 FLUENCY_BURST_LEN = 6  # chars after a planning pause that stay cleaner
+
+# Coding autocomplete: a repeated identifier is finished from a prefix + accept
+# key rather than fully typed. Accept-per-show is ~27-30% in real IDEs
+# (Copilot 27.5%, JetBrains ~30%). Only applies in the coding rhythm.
+PROB_AUTOCOMPLETE = 0.3
+AUTOCOMPLETE_MIN_LEN = 5     # only autocomplete identifiers at least this long
+AUTOCOMPLETE_PREFIX = 3      # chars typed before accepting the completion
+TIME_COMPLETION_PAUSE = 0.25  # glance at the popup before accepting
+TIME_TAB = 0.12             # per Tab press when indenting a line (coding)
+
+# Writing reformulation: draft a paraphrase of a sentence, then delete it and
+# type the intended one (Hayes-Flower within-sentence revision). Needs a local
+# T5 paraphrase model; disabled when no model path is set.
+PROB_PARAPHRASE = 0.25
+TIME_BULK_BACKSPACE = 0.045  # per-char delete time when clearing a draft (held key)

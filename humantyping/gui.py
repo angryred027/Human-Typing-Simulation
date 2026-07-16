@@ -2,7 +2,7 @@ import os
 import sys
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog, messagebox
 
 import winsound
 import pystray
@@ -137,6 +137,7 @@ def draw_rhythm_graph(canvas, samples, window):
     y0, y1 = top, h - bottom
     plot_w, plot_h = x1 - x0, y1 - y0
     n = len(data)
+    base = len(samples) - n  # absolute keystroke offset
     step = plot_w / (n - 1)
     speeds = [1.0 / s["iki"] if s.get("iki") else 0.0 for s in data]
     peak = max(speeds) or 1.0
@@ -149,7 +150,7 @@ def draw_rhythm_graph(canvas, samples, window):
     for i in range(0, n, max(1, (n - 1) // 5)):
         x = x0 + i * step
         canvas.create_line(x, y0, x, y1, fill="#f2f2f2")
-        canvas.create_text(x, y1 + 2, anchor="n", text=str(data[i].get("typed", i)),
+        canvas.create_text(x, y1 + 2, anchor="n", text=str(base + i + 1),
                            fill="#999999", font=("Segoe UI", 7))
 
     def sy(cps):
@@ -170,8 +171,8 @@ def draw_rhythm_graph(canvas, samples, window):
             canvas.create_line(x, y0, x, y1, fill="#e89628", width=1)
 
     canvas.create_text(4, y0 - 12, anchor="w", text="c/s", fill="#999999", font=("Segoe UI", 7))
-    canvas.create_text(x1, y1 + 2, anchor="ne", text="chars", fill="#999999", font=("Segoe UI", 7))
-    legend = [("speed", "#3a7bd5"), ("errors", "#d64545"), ("breaks", "#e89628"), ("output", "#3aae6e")]
+    canvas.create_text(x1, y1 + 2, anchor="ne", text="keystroke", fill="#999999", font=("Segoe UI", 7))
+    legend = [("speed", "#3a7bd5"), ("errors", "#d64545"), ("breaks", "#e89628"), ("length", "#3aae6e")]
     lx = x0
     for label, color in legend:
         canvas.create_text(lx, top - 10, anchor="w", text=label, fill=color, font=("Segoe UI", 8))
@@ -196,7 +197,9 @@ class ConfigDialog(tk.Toplevel):
             "prob_notice_error": tk.StringVar(value=str(s["prob_notice_error"])),
             "prob_word_level_correction": tk.StringVar(value=str(s["prob_word_level_correction"])),
             "start_delay": tk.StringVar(value=str(s["start_delay"])),
+            "coding_indent": tk.StringVar(value=s.get("coding_indent", "tab")),
             "graph_chars": tk.StringVar(value=str(s.get("graph_chars", 120))),
+            "paraphrase_model_path": tk.StringVar(value=s.get("paraphrase_model_path", "")),
         }
 
         frm = ttk.Frame(self, padding=12)
@@ -211,6 +214,7 @@ class ConfigDialog(tk.Toplevel):
             ("Notice error (restart)", "prob_notice_error", None),
             ("Word-level fix (restart)", "prob_word_level_correction", None),
             ("Start delay (s)", "start_delay", None),
+            ("Coding indent", "coding_indent", ["tab", "none"]),
         ]
         r = 0
         for label, key, choices in rows:
@@ -228,6 +232,16 @@ class ConfigDialog(tk.Toplevel):
                     command=self._redraw).grid(row=r, column=1, sticky="ew", pady=3, padx=(12, 0))
         r += 1
 
+        ttk.Label(frm, text="Paraphrase model (writing)").grid(row=r, column=0, sticky="w", pady=3)
+        pf = ttk.Frame(frm)
+        pf.grid(row=r, column=1, sticky="ew", pady=3, padx=(12, 0))
+        pf.columnconfigure(0, weight=1)
+        ttk.Entry(pf, textvariable=self.vars["paraphrase_model_path"]).grid(row=0, column=0, sticky="ew")
+        ttk.Button(pf, text="...", width=3, command=self._browse_model).grid(row=0, column=1, padx=(4, 0))
+        self._test_btn = ttk.Button(pf, text="Test", width=5, command=self._test_model)
+        self._test_btn.grid(row=0, column=2, padx=(4, 0))
+        r += 1
+
         ttk.Label(frm, text="Last typing rhythm").grid(row=r, column=0, columnspan=2, sticky="w", pady=(10, 2))
         r += 1
         self.graph = tk.Canvas(frm, width=460, height=170, highlightthickness=0)
@@ -236,7 +250,8 @@ class ConfigDialog(tk.Toplevel):
         r += 1
 
         btns = ttk.Frame(frm)
-        btns.grid(row=r, column=0, columnspan=2, pady=(12, 0), sticky="e")
+        btns.grid(row=r, column=0, columnspan=2, pady=(12, 0), sticky="ew")
+        ttk.Button(btns, text="Export data", command=self._export_data).pack(side="left")
         ttk.Button(btns, text="Save", command=self.on_save).pack(side="right", padx=(6, 0))
         ttk.Button(btns, text="Cancel", command=self.destroy).pack(side="right")
 
@@ -249,10 +264,68 @@ class ConfigDialog(tk.Toplevel):
     def _redraw(self):
         draw_rhythm_graph(self.graph, self.app.samples, self._graph_window())
 
+    def _export_data(self):
+        data = self.app.samples
+        if not data:
+            messagebox.showinfo("Export data", "No typing recorded yet.", parent=self)
+            return
+        path = filedialog.asksaveasfilename(
+            parent=self, title="Save rhythm data", defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("JSON", "*.json")])
+        if not path:
+            return
+        if path.lower().endswith(".json"):
+            import json
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        else:
+            import csv
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["keystroke", "iki_ms", "speed_cps", "error", "break", "text_length"])
+                for i, s in enumerate(data, 1):
+                    iki = s.get("iki") or 0.0
+                    writer.writerow([i, round(iki * 1000, 1), round(1.0 / iki, 2) if iki > 0 else 0,
+                                     int(bool(s.get("error"))), int(bool(s.get("break"))), s.get("typed", 0)])
+        messagebox.showinfo("Export data", f"Saved {len(data)} keystrokes to\n{path}", parent=self)
+
+    def _browse_model(self):
+        path = filedialog.askdirectory(title="Select paraphrase model folder")
+        if path:
+            self.vars["paraphrase_model_path"].set(path)
+
+    def _test_model(self):
+        path = self.vars["paraphrase_model_path"].get().strip()
+        if not path:
+            messagebox.showwarning("Paraphrase model", "Set a model folder first.", parent=self)
+            return
+        self._test_btn.config(state="disabled", text="...")
+
+        def work():
+            from .paraphrase import Paraphraser
+            try:
+                sample = Paraphraser(path).test_load()
+                result = ("ok", f"Model loaded successfully.\n\nSample paraphrase:\n{sample}")
+            except Exception as e:
+                result = ("fail", f"Failed to load model:\n\n{type(e).__name__}: {e}")
+            self.after(0, lambda: self._test_done(result))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _test_done(self, result):
+        self._test_btn.config(state="normal", text="Test")
+        kind, msg = result
+        if kind == "ok":
+            messagebox.showinfo("Paraphrase model", msg, parent=self)
+        else:
+            messagebox.showerror("Paraphrase model", msg, parent=self)
+
     def on_save(self):
         s = self.app.settings
         s["rhythm"] = self.vars["rhythm"].get()
         s["layout"] = self.vars["layout"].get()
+        s["coding_indent"] = self.vars["coding_indent"].get()
+        s["paraphrase_model_path"] = self.vars["paraphrase_model_path"].get()
         for key, cast in (("wpm", float), ("base_error_rate", float), ("prob_notice_error", float),
                           ("prob_word_level_correction", float), ("start_delay", float),
                           ("graph_chars", int)):
@@ -324,6 +397,15 @@ class App(tk.Tk):
         self.progress_label = ttk.Label(pad, text="", anchor="center")
         self.progress_label.pack(fill="x")
 
+        rhythm_row = ttk.Frame(pad)
+        rhythm_row.pack(fill="x", padx=(30,0), pady=(10, 0))
+        ttk.Label(rhythm_row, text="Rhythm").pack(side="left")
+        self.rhythm_var = tk.StringVar(value=self.settings["rhythm"])
+        rc = ttk.Combobox(rhythm_row, textvariable=self.rhythm_var, values=sorted(config.RHYTHM_PRESETS),
+                          state="readonly", width=12)
+        rc.pack(side="left", padx=(8, 0))
+        rc.bind("<<ComboboxSelected>>", self._on_rhythm_change)
+
         grid = ttk.Frame(pad)
         grid.pack(pady=(12, 0))
         self.btn_window = RoundedButton(grid, command=self.on_select_window)
@@ -363,12 +445,20 @@ class App(tk.Tk):
             return "Resume"
         if st == "counting":
             return "Starting..."
+        if st == "loading":
+            return "Loading..."
         return "Start"
+
+    def _on_rhythm_change(self, event=None):
+        self.settings["rhythm"] = self.rhythm_var.get()
+        self.save()
 
     def _refresh(self):
         self.btn_window.set_text(self._window_label())
         self.btn_shortcut.set_text(winutil.format_hotkey(self.settings["hotkey"]))
         self.btn_action.set_text(self._action_label())
+        if hasattr(self, "rhythm_var"):
+            self.rhythm_var.set(self.settings["rhythm"])
         running = self.controller.is_running()
         self.btn_cancel.set_enabled(running)
         self.btn_window.set_enabled(not running)
@@ -395,10 +485,18 @@ class App(tk.Tk):
         self._caret = 0
         self._set_editing(False)
         hwnd = self.settings.get("window_hwnd")
-        ensure = (lambda: winutil.ensure_foreground(hwnd)) if hwnd else None
+        focus_once = (lambda: winutil.focus_window(hwnd)) if hwnd else None
+        is_focused = (lambda: winutil.get_foreground() == hwnd) if hwnd else None
+        make_paraphraser = None
+        model_path = self.settings.get("paraphrase_model_path", "")
+        if model_path and self.settings["rhythm"] == "writing":
+            from .paraphrase import Paraphraser
+            make_paraphraser = lambda: Paraphraser(model_path)
         self.controller.start(text=text, wpm=self.settings["wpm"], rhythm=self.settings["rhythm"],
                               layout=self.settings["layout"], start_delay=self.settings["start_delay"],
-                              ensure_focus=ensure)
+                              focus_once=focus_once, is_focused=is_focused,
+                              make_paraphraser=make_paraphraser,
+                              coding_indent=self.settings.get("coding_indent", "tab"))
 
     def on_cancel(self):
         self.controller.cancel()
