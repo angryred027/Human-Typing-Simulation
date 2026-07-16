@@ -1,10 +1,11 @@
 import numpy as np
 from .typer import MarkovTyper
+from .config import DEFAULT_RHYTHM
 import time
 import sys
 
 
-def run_monte_carlo(target_text: str, wpm: float, n_simulations: int = 100) -> np.ndarray:
+def run_monte_carlo(target_text: str, wpm: float, n_simulations: int = 100, rhythm: str = DEFAULT_RHYTHM) -> np.ndarray:
     """
     Runs n_simulations to estimate typing time distribution.
     """
@@ -14,7 +15,7 @@ def run_monte_carlo(target_text: str, wpm: float, n_simulations: int = 100) -> n
     start_global = time.time()
 
     for i in range(n_simulations):
-        typer = MarkovTyper(target_text, target_wpm=wpm)
+        typer = MarkovTyper(target_text, target_wpm=wpm, rhythm=rhythm)
         total_time, _ = typer.run()
         times.append(total_time)
 
@@ -35,19 +36,19 @@ def run_monte_carlo(target_text: str, wpm: float, n_simulations: int = 100) -> n
     return times
 
 
-def demo_single_run(target_text: str, wpm: float) -> None:
+def demo_single_run(target_text: str, wpm: float, rhythm: str = DEFAULT_RHYTHM) -> None:
     """
     Displays a detailed real-time simulation.
     """
     has_newlines = "\n" in target_text
     if has_newlines:
-        print(f"\n--- Real-Time Simulation Demo:\n{target_text}\n(Target WPM: {wpm}) ---")
+        print(f"\n--- Real-Time Simulation Demo:\n{target_text}\n(Target WPM: {wpm}, Rhythm: {rhythm}) ---")
     else:
-        print(f"\n--- Real-Time Simulation Demo: '{target_text}' (Target WPM: {wpm}) ---")
+        print(f"\n--- Real-Time Simulation Demo: '{target_text}' (Target WPM: {wpm}, Rhythm: {rhythm}) ---")
     print("Preparing simulation...\n")
 
     # 1. Calculate trajectory instantly
-    typer = MarkovTyper(target_text, target_wpm=wpm)
+    typer = MarkovTyper(target_text, target_wpm=wpm, rhythm=rhythm)
     total_time, history = typer.run()
 
     # 2. Replay history

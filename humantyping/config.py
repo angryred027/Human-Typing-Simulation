@@ -66,9 +66,35 @@ MIN_ARROW_TIME = 0.03
 TIME_DIRECT_ACCENT_PENALTY = 0.15
 TIME_COMPOSED_ACCENT_PENALTY = 0.4
 TIME_UPPERCASE_PENALTY = 0.2
-TIME_SPACE_PAUSE_MEAN = 0.25
-TIME_SPACE_PAUSE_STD = 0.05
 
 # Fatigue
 FATIGUE_FACTOR = 1.0005
 FATIGUE_CAP = 1.5  # Maximum fatigue multiplier
+
+# Typing rhythm. Pause durations follow a mixture of log-normal components tied
+# to text location (Baaijen et al. 2012): mechanical within words, lexical
+# between words, planning at sentence/paragraph boundaries. Each preset sets the
+# boundary pause (median seconds, log sigma) and planning_fluency — how much a
+# planning pause lowers the error rate of the burst it precedes (thinking-then-fluent).
+RHYTHM_PRESETS = {
+    "messaging": {
+        "word_pause": (0.10, 0.4),
+        "sentence_pause": (0.30, 0.5),
+        "paragraph_pause": (0.5, 0.5),
+        "planning_fluency": 0.9,
+    },
+    "writing": {
+        "word_pause": (0.22, 0.5),
+        "sentence_pause": (1.1, 0.6),
+        "paragraph_pause": (2.4, 0.6),
+        "planning_fluency": 0.5,
+    },
+    "coding": {
+        "word_pause": (0.28, 0.6),
+        "sentence_pause": (0.7, 0.6),
+        "paragraph_pause": (1.6, 0.7),
+        "planning_fluency": 0.6,
+    },
+}
+DEFAULT_RHYTHM = "messaging"
+FLUENCY_BURST_LEN = 6  # chars after a planning pause that stay cleaner
