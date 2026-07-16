@@ -1,4 +1,5 @@
 import argparse
+from humantyping import HumanTyper
 from humantyping.simulation import run_monte_carlo, demo_single_run
 from humantyping.config import RHYTHM_PRESETS, DEFAULT_RHYTHM
 
@@ -19,10 +20,18 @@ instance.method1()
     parser.add_argument("--wpm", type=float, default=60.0, help="Target average speed (Words Per Minute)")
     parser.add_argument("--rhythm", choices=sorted(RHYTHM_PRESETS), default=DEFAULT_RHYTHM,
                         help="Pause rhythm: writing / coding / messaging")
+    parser.add_argument("--target", choices=["terminal", "desktop"], default="terminal",
+                        help="Where to send keystrokes: terminal preview or the focused desktop window")
+    parser.add_argument("--delay", type=float, default=3.0,
+                        help="Seconds to focus the target window before typing (desktop target)")
 
     args = parser.parse_args()
 
-    if args.mode == "demo":
+    if args.target == "desktop":
+        typer = HumanTyper(wpm=args.wpm, rhythm=args.rhythm)
+        print(f"Focus the target window... typing in {args.delay:.0f}s")
+        typer.type_desktop(args.text, start_delay=args.delay)
+    elif args.mode == "demo":
         demo_single_run(args.text, args.wpm, rhythm=args.rhythm)
     elif args.mode == "montecarlo":
         run_monte_carlo(args.text, args.wpm, n_simulations=args.n, rhythm=args.rhythm)
