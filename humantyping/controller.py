@@ -5,7 +5,7 @@ import time
 import unicodedata
 from typing import Callable
 
-from .typer import MarkovTyper
+from .typer import build_history
 
 _ASCII_MAP = {
     "—": "-", "–": "-", "‒": "-", "―": "-",
@@ -49,6 +49,7 @@ class TypingController:
         self.on_state = on_state
         self.state = "idle"
         self.target_text = ""
+        self._is_focused = None
         self._thread: threading.Thread | None = None
         self._pause = threading.Event()
         self._cancel = threading.Event()
@@ -59,14 +60,17 @@ class TypingController:
     def is_paused(self) -> bool:
         return self._pause.is_set()
 
-    def start(self, text, wpm, rhythm, layout, start_delay, ensure_focus=None) -> None:
+    def start(self, text, wpm, rhythm, layout, start_delay, focus_once=None, is_focused=None,
+              make_paraphraser=None) -> None:
         if self.is_running():
             return
         self._pause.clear()
         self._cancel.clear()
         self.target_text = text
+        self._is_focused = is_focused
         self._thread = threading.Thread(
-            target=self._run, args=(text, wpm, rhythm, layout, start_delay, ensure_focus), daemon=True)
+            target=self._run, args=(text, wpm, rhythm, layout, start_delay, focus_once, make_paraphraser),
+            daemon=True)
         self._thread.start()
 
     def pause(self) -> None:
@@ -94,14 +98,17 @@ class TypingController:
         if self.on_state:
             self.on_state(state)
 
+    def _blocked(self) -> bool:
+        return self._pause.is_set() or (self._is_focused is not None and not self._is_focused())
+
     def _sleep(self, seconds: float) -> None:
         end = time.time() + seconds
         while True:
             if self._cancel.is_set():
                 return
-            if self._pause.is_set():
+            if self._blocked():
                 pstart = time.time()
-                while self._pause.is_set() and not self._cancel.is_set():
+                while self._blocked() and not self._cancel.is_set():
                     time.sleep(0.03)
                 end += time.time() - pstart
                 continue
@@ -110,17 +117,21 @@ class TypingController:
                 return
             time.sleep(min(remaining, 0.02))
 
-    def _run(self, text, wpm, rhythm, layout, start_delay, ensure_focus) -> None:
+    def _run(self, text, wpm, rhythm, layout, start_delay, focus_once, make_paraphraser) -> None:
         from pynput.keyboard import Controller, Key
 
         text = to_ascii(text)
+        paraphraser = None
+        if make_paraphraser and rhythm == "writing":
+            self._set_state("loading")
+            paraphraser = make_paraphraser()
         try:
-            typer = MarkovTyper(text, target_wpm=wpm, layout=layout, rhythm=rhythm)
+            _, history = build_history(text, target_wpm=wpm, layout=layout, rhythm=rhythm,
+                                       paraphraser=paraphraser)
         except ValueError:
             self._set_state("idle")
             return
 
-        _, history = typer.run()
         total = len(text)
         total_time = history[-1][0] if history else 0.0
         keyboard = Controller()
@@ -133,8 +144,8 @@ class TypingController:
                 self._set_state("idle")
                 return
             time.sleep(0.05)
-        if ensure_focus:
-            ensure_focus()
+        if focus_once:
+            focus_once()
             time.sleep(0.15)
 
         self._set_state("typing")
@@ -149,11 +160,11 @@ class TypingController:
                 break
             delay = t - last_t
             self._sleep(delay)
+            while self._blocked() and not self._cancel.is_set():
+                time.sleep(0.03)  # target lost focus: wait, do not steal it
             if self._cancel.is_set():
                 break
             last_t = t
-            if ensure_focus:
-                ensure_focus()
 
             if "BACKSPACE" in action:
                 keyboard.tap(Key.backspace)
@@ -161,6 +172,11 @@ class TypingController:
                 keyboard.tap(Key.left)
             elif "ARROW_RIGHT" in action:
                 keyboard.tap(Key.right)
+            elif "TYPED_COMPLETE" in action:
+                prefix = _extract_char(action).split("|", 1)[0]
+                for ch in to_ascii(prefix):
+                    keyboard.type(ch)
+                keyboard.tap(Key.enter)
             elif "TYPED" in action:
                 for ch in to_ascii(_extract_char(action)):
                     if ch == "\n" and newline_shift:

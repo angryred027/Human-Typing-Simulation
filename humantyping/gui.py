@@ -2,7 +2,7 @@ import os
 import sys
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog
 
 import winsound
 import pystray
@@ -197,6 +197,7 @@ class ConfigDialog(tk.Toplevel):
             "prob_word_level_correction": tk.StringVar(value=str(s["prob_word_level_correction"])),
             "start_delay": tk.StringVar(value=str(s["start_delay"])),
             "graph_chars": tk.StringVar(value=str(s.get("graph_chars", 120))),
+            "paraphrase_model_path": tk.StringVar(value=s.get("paraphrase_model_path", "")),
         }
 
         frm = ttk.Frame(self, padding=12)
@@ -228,6 +229,14 @@ class ConfigDialog(tk.Toplevel):
                     command=self._redraw).grid(row=r, column=1, sticky="ew", pady=3, padx=(12, 0))
         r += 1
 
+        ttk.Label(frm, text="Paraphrase model (writing)").grid(row=r, column=0, sticky="w", pady=3)
+        pf = ttk.Frame(frm)
+        pf.grid(row=r, column=1, sticky="ew", pady=3, padx=(12, 0))
+        pf.columnconfigure(0, weight=1)
+        ttk.Entry(pf, textvariable=self.vars["paraphrase_model_path"]).grid(row=0, column=0, sticky="ew")
+        ttk.Button(pf, text="...", width=3, command=self._browse_model).grid(row=0, column=1, padx=(4, 0))
+        r += 1
+
         ttk.Label(frm, text="Last typing rhythm").grid(row=r, column=0, columnspan=2, sticky="w", pady=(10, 2))
         r += 1
         self.graph = tk.Canvas(frm, width=460, height=170, highlightthickness=0)
@@ -249,10 +258,16 @@ class ConfigDialog(tk.Toplevel):
     def _redraw(self):
         draw_rhythm_graph(self.graph, self.app.samples, self._graph_window())
 
+    def _browse_model(self):
+        path = filedialog.askdirectory(title="Select paraphrase model folder")
+        if path:
+            self.vars["paraphrase_model_path"].set(path)
+
     def on_save(self):
         s = self.app.settings
         s["rhythm"] = self.vars["rhythm"].get()
         s["layout"] = self.vars["layout"].get()
+        s["paraphrase_model_path"] = self.vars["paraphrase_model_path"].get()
         for key, cast in (("wpm", float), ("base_error_rate", float), ("prob_notice_error", float),
                           ("prob_word_level_correction", float), ("start_delay", float),
                           ("graph_chars", int)):
@@ -363,6 +378,8 @@ class App(tk.Tk):
             return "Resume"
         if st == "counting":
             return "Starting..."
+        if st == "loading":
+            return "Loading..."
         return "Start"
 
     def _refresh(self):
@@ -395,10 +412,17 @@ class App(tk.Tk):
         self._caret = 0
         self._set_editing(False)
         hwnd = self.settings.get("window_hwnd")
-        ensure = (lambda: winutil.ensure_foreground(hwnd)) if hwnd else None
+        focus_once = (lambda: winutil.focus_window(hwnd)) if hwnd else None
+        is_focused = (lambda: winutil.get_foreground() == hwnd) if hwnd else None
+        make_paraphraser = None
+        model_path = self.settings.get("paraphrase_model_path", "")
+        if model_path and self.settings["rhythm"] == "writing":
+            from .paraphrase import Paraphraser
+            make_paraphraser = lambda: Paraphraser(model_path)
         self.controller.start(text=text, wpm=self.settings["wpm"], rhythm=self.settings["rhythm"],
                               layout=self.settings["layout"], start_delay=self.settings["start_delay"],
-                              ensure_focus=ensure)
+                              focus_once=focus_once, is_focused=is_focused,
+                              make_paraphraser=make_paraphraser)
 
     def on_cancel(self):
         self.controller.cancel()

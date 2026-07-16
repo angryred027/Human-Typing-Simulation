@@ -6,3 +6,5 @@ pywin32>=306; sys_platform == "win32"
 transformers>=4.56.0
 torch>=2.8.0
 sentencepiece>=0.2.1
+tiktoken
+protobuf

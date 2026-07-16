@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import re
 import numpy as np
 from dataclasses import dataclass, field
 
 from .config import (
     DEFAULT_WPM, WPM_STD, AVG_WORD_LENGTH,
+    PROB_AUTOCOMPLETE, AUTOCOMPLETE_MIN_LEN, AUTOCOMPLETE_PREFIX, TIME_COMPLETION_PAUSE,
     PROB_ERROR, PROB_SWAP_ERROR, PROB_NOTICE_ERROR,
     PROB_MISSED_SHIFT, PROB_SHIFT_HELD,
     PROB_OMISSION, PROB_INSERTION, PROB_DOUBLING,
@@ -21,6 +23,7 @@ from .config import (
     MIN_KEYSTROKE_TIME, MIN_REACTION_TIME, MIN_BACKSPACE_TIME, MIN_ARROW_TIME,
     MIN_SPEED_MULTIPLIER,
     RHYTHM_PRESETS, DEFAULT_RHYTHM, FLUENCY_BURST_LEN,
+    PROB_PARAPHRASE, TIME_BULK_BACKSPACE,
 )
 from .keyboard import KeyboardLayout
 from .language import get_word_difficulty, is_common_bigram
@@ -54,6 +57,7 @@ class MarkovTyper:
         self.target_text = target_text
         self.keyboard = KeyboardLayout(layout)
         self.rhythm = RHYTHM_PRESETS[rhythm]
+        self.rhythm_name = rhythm
         self.state = TypingState(target_text=target_text)
 
         self.session_wpm = np.random.normal(target_wpm, WPM_STD)
@@ -73,6 +77,23 @@ class MarkovTyper:
         while end < len(self.target_text) and self.target_text[end] != ' ':
             end += 1
         return self.target_text[start:end]
+
+    def _at_word_start(self) -> bool:
+        i = self.state.mental_cursor_pos
+        ch = self.target_text[i]
+        if not (ch.isalpha() or ch == '_'):
+            return False
+        return i == 0 or not (self.target_text[i - 1].isalnum() or self.target_text[i - 1] == '_')
+
+    def _upcoming_word(self) -> str:
+        i = j = self.state.mental_cursor_pos
+        while j < len(self.target_text) and (self.target_text[j].isalnum() or self.target_text[j] == '_'):
+            j += 1
+        return self.target_text[i:j]
+
+    def _word_seen_before(self, word: str) -> bool:
+        prefix = self.target_text[:self.state.mental_cursor_pos]
+        return word in re.findall(r'[A-Za-z_]\w*', prefix)
 
     def _transition_kind(self) -> str:
         """Classify the boundary being crossed, from the previous typed char."""
@@ -228,6 +249,24 @@ class MarkovTyper:
             return None
 
         char_intended = self.target_text[self.state.mental_cursor_pos]
+
+        # Coding autocomplete: finish a repeated identifier from a prefix + accept
+        # key instead of typing it in full (IDE completion, ~30% accept rate).
+        if (self.rhythm_name == "coding"
+                and self.state.current_text == self.target_text[:self.state.mental_cursor_pos]
+                and self._at_word_start()):
+            word = self._upcoming_word()
+            if (len(word) >= AUTOCOMPLETE_MIN_LEN and self._word_seen_before(word)
+                    and np.random.random() < PROB_AUTOCOMPLETE):
+                prefix = word[:AUTOCOMPLETE_PREFIX]
+                dt = sum(self._calculate_keystroke_time(ch) for ch in prefix) + TIME_COMPLETION_PAUSE
+                self.state.total_time += dt
+                self.state.current_text += word
+                self.state.last_char_typed = word[-1]
+                event = (self.state.total_time, f"TYPED_COMPLETE '{prefix}|{word}'", self.state.current_text)
+                self.state.history.append(event)
+                self.state.mental_cursor_pos += len(word)
+                return event
 
         # If the character is not on our keyboard, type it literally (no error modeling)
         if not self.keyboard.has_key(char_intended) and char_intended != ' ':
@@ -424,3 +463,49 @@ class MarkovTyper:
             if steps > max_steps:
                 break
         return self.state.total_time, self.state.history
+
+
+_SENTENCE_RE = re.compile(r'[^.!?\n]*[.!?\n]?[ \t]*')
+
+
+def _split_sentences(text: str) -> list[str]:
+    parts = [m.group() for m in _SENTENCE_RE.finditer(text) if m.group()]
+    return parts if "".join(parts) == text else [text]
+
+
+def _emit_segment(history, seg, prefix, t_off, wpm, layout, rhythm):
+    total, sub = MarkovTyper(seg, target_wpm=wpm, layout=layout, rhythm=rhythm).run()
+    for st, action, cur in sub:
+        if "INIT" not in action:
+            history.append((t_off + st, action, prefix + cur))
+    return t_off + total
+
+
+def _emit_delete(history, draft, prefix, t_off):
+    t = t_off
+    for k in range(len(draft) - 1, -1, -1):
+        t += TIME_BULK_BACKSPACE
+        history.append((t, "BACKSPACE", prefix + draft[:k]))
+    return t
+
+
+def build_history(text, target_wpm=DEFAULT_WPM, layout="qwerty", rhythm=DEFAULT_RHYTHM, paraphraser=None):
+    """Full keystroke history for the text. In the writing rhythm with a
+    paraphraser, some sentences are first drafted as a paraphrase, then deleted
+    and retyped correctly (Hayes-Flower within-sentence revision)."""
+    if rhythm != "writing" or paraphraser is None:
+        return MarkovTyper(text, target_wpm=target_wpm, layout=layout, rhythm=rhythm).run()
+
+    history = [(0.0, "INIT", "")]
+    t_off = 0.0
+    committed = ""
+    for sent in _split_sentences(text):
+        core = sent.strip()
+        if len(core) >= 12 and np.random.random() < PROB_PARAPHRASE:
+            draft = paraphraser.paraphrase(core)
+            if draft and draft.strip() and draft.strip().lower() != core.lower():
+                t_off = _emit_segment(history, draft, committed, t_off, target_wpm, layout, rhythm)
+                t_off = _emit_delete(history, draft, committed, t_off)
+        t_off = _emit_segment(history, sent, committed, t_off, target_wpm, layout, rhythm)
+        committed += sent
+    return t_off, history

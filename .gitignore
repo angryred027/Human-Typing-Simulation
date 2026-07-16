@@ -57,3 +57,14 @@ CLAUDE.md
 
 # References
 references/
+
+# Local paraphrase model files (loaded at runtime, never bundled)
+chatgpt_paraphraser_on_T5_base/
+model_files/
+*.safetensors
+*.bin
+
+# PyInstaller
+*.spec
+
+humantyping/config.json
