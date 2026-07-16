@@ -137,6 +137,7 @@ def draw_rhythm_graph(canvas, samples, window):
     y0, y1 = top, h - bottom
     plot_w, plot_h = x1 - x0, y1 - y0
     n = len(data)
+    base = len(samples) - n  # absolute keystroke offset
     step = plot_w / (n - 1)
     speeds = [1.0 / s["iki"] if s.get("iki") else 0.0 for s in data]
     peak = max(speeds) or 1.0
@@ -149,7 +150,7 @@ def draw_rhythm_graph(canvas, samples, window):
     for i in range(0, n, max(1, (n - 1) // 5)):
         x = x0 + i * step
         canvas.create_line(x, y0, x, y1, fill="#f2f2f2")
-        canvas.create_text(x, y1 + 2, anchor="n", text=str(data[i].get("typed", i)),
+        canvas.create_text(x, y1 + 2, anchor="n", text=str(base + i + 1),
                            fill="#999999", font=("Segoe UI", 7))
 
     def sy(cps):
@@ -170,8 +171,8 @@ def draw_rhythm_graph(canvas, samples, window):
             canvas.create_line(x, y0, x, y1, fill="#e89628", width=1)
 
     canvas.create_text(4, y0 - 12, anchor="w", text="c/s", fill="#999999", font=("Segoe UI", 7))
-    canvas.create_text(x1, y1 + 2, anchor="ne", text="chars", fill="#999999", font=("Segoe UI", 7))
-    legend = [("speed", "#3a7bd5"), ("errors", "#d64545"), ("breaks", "#e89628"), ("output", "#3aae6e")]
+    canvas.create_text(x1, y1 + 2, anchor="ne", text="keystroke", fill="#999999", font=("Segoe UI", 7))
+    legend = [("speed", "#3a7bd5"), ("errors", "#d64545"), ("breaks", "#e89628"), ("length", "#3aae6e")]
     lx = x0
     for label, color in legend:
         canvas.create_text(lx, top - 10, anchor="w", text=label, fill=color, font=("Segoe UI", 8))
@@ -249,7 +250,8 @@ class ConfigDialog(tk.Toplevel):
         r += 1
 
         btns = ttk.Frame(frm)
-        btns.grid(row=r, column=0, columnspan=2, pady=(12, 0), sticky="e")
+        btns.grid(row=r, column=0, columnspan=2, pady=(12, 0), sticky="ew")
+        ttk.Button(btns, text="Export data", command=self._export_data).pack(side="left")
         ttk.Button(btns, text="Save", command=self.on_save).pack(side="right", padx=(6, 0))
         ttk.Button(btns, text="Cancel", command=self.destroy).pack(side="right")
 
@@ -261,6 +263,31 @@ class ConfigDialog(tk.Toplevel):
 
     def _redraw(self):
         draw_rhythm_graph(self.graph, self.app.samples, self._graph_window())
+
+    def _export_data(self):
+        data = self.app.samples
+        if not data:
+            messagebox.showinfo("Export data", "No typing recorded yet.", parent=self)
+            return
+        path = filedialog.asksaveasfilename(
+            parent=self, title="Save rhythm data", defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("JSON", "*.json")])
+        if not path:
+            return
+        if path.lower().endswith(".json"):
+            import json
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        else:
+            import csv
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["keystroke", "iki_ms", "speed_cps", "error", "break", "text_length"])
+                for i, s in enumerate(data, 1):
+                    iki = s.get("iki") or 0.0
+                    writer.writerow([i, round(iki * 1000, 1), round(1.0 / iki, 2) if iki > 0 else 0,
+                                     int(bool(s.get("error"))), int(bool(s.get("break"))), s.get("typed", 0)])
+        messagebox.showinfo("Export data", f"Saved {len(data)} keystrokes to\n{path}", parent=self)
 
     def _browse_model(self):
         path = filedialog.askdirectory(title="Select paraphrase model folder")
@@ -370,6 +397,15 @@ class App(tk.Tk):
         self.progress_label = ttk.Label(pad, text="", anchor="center")
         self.progress_label.pack(fill="x")
 
+        rhythm_row = ttk.Frame(pad)
+        rhythm_row.pack(fill="x", padx=(30,0), pady=(10, 0))
+        ttk.Label(rhythm_row, text="Rhythm").pack(side="left")
+        self.rhythm_var = tk.StringVar(value=self.settings["rhythm"])
+        rc = ttk.Combobox(rhythm_row, textvariable=self.rhythm_var, values=sorted(config.RHYTHM_PRESETS),
+                          state="readonly", width=12)
+        rc.pack(side="left", padx=(8, 0))
+        rc.bind("<<ComboboxSelected>>", self._on_rhythm_change)
+
         grid = ttk.Frame(pad)
         grid.pack(pady=(12, 0))
         self.btn_window = RoundedButton(grid, command=self.on_select_window)
@@ -413,10 +449,16 @@ class App(tk.Tk):
             return "Loading..."
         return "Start"
 
+    def _on_rhythm_change(self, event=None):
+        self.settings["rhythm"] = self.rhythm_var.get()
+        self.save()
+
     def _refresh(self):
         self.btn_window.set_text(self._window_label())
         self.btn_shortcut.set_text(winutil.format_hotkey(self.settings["hotkey"]))
         self.btn_action.set_text(self._action_label())
+        if hasattr(self, "rhythm_var"):
+            self.rhythm_var.set(self.settings["rhythm"])
         running = self.controller.is_running()
         self.btn_cancel.set_enabled(running)
         self.btn_window.set_enabled(not running)

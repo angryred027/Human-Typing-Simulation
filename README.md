@@ -27,8 +27,10 @@ keystroke datasets (Dhakal et al. 2018; Baaijen et al. 2012).
 - **Writing** rhythm: optional reformulation — draft a paraphrase of a sentence,
   then delete it and type the intended one (Hayes-Flower within-sentence revision),
   using a local T5 paraphrase model.
-- Tkinter UI with a live progress view, system tray, and a global hotkey.
-- Config dialog with a rhythm graph of the last run (speed + errors).
+- Tkinter UI with a live progress view, a rhythm selector, system tray, and a
+  global hotkey.
+- Config dialog with a rhythm graph of the last run (speed, errors, breaks,
+  text length) that exports to CSV/JSON.
 
 ## Install & run
 

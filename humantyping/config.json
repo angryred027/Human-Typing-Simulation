@@ -1,13 +1,14 @@
 {
   "wpm": 70.0,
   "layout": "qwerty",
-  "rhythm": "writing",
+  "rhythm": "messaging",
   "base_error_rate": 0.03,
   "prob_notice_error": 0.4,
   "prob_word_level_correction": 0.7,
   "start_delay": 3.0,
   "hotkey": "shift+f10",
   "graph_chars": 120,
+  "coding_indent": "none",
   "paraphrase_model_path": "D:/Workspace/AI,Automation/Human_Typing_Simulation/chatgpt_paraphraser_on_T5_base",
-  "text": "Bug 1 - model loading state + which folder to use\nWhich folder: Use chatgpt_paraphraser_on_T5_base/ (complete: config.json, tokenizer.json, spiece.model, weights, etc.). Your model_files/ was incomplete - only weights + spiece.model, missing config.json and the tokenizer files, so from_pretrained() couldn't load it. No re-download needed - I copied the 5 small missing files into model_files/, so both folders now work.\n\nPoint Config -> Paraphrase model at:\nD:\\Workspace\\AI,Automation\\Human_Typing_Simulation\\chatgpt_paraphraser_on_T5_base\n\nLoading state feedback: added a Test button next to the model path in the config dialog. It loads the model on a background thread and pops up success (with a sample paraphrase) or failure (with the actual error). Paraphraser.test_load() now surfaces errors instead of swallowing them; normal typing still degrades gracefully if the model can't load. (Verified: here it correctly reports ModuleNotFoundError since transformers isn't installed in this sandbox - on your machine it's in requirements.txt, so it'll load and show a sample.)\n\nBug 2 - coding indentation uses Tab, not typed spaces\nThe screenshot's cascading indentation was our leading spaces compounding with the IDE's auto-indent. Now, in the coding rhythm, leading-line whitespace is emitted as Tab key presses (one per indent level), never individual spaces:\n\nAuto-detects the indent unit (4 in your example).\n->1 Tab, ->2 Tabs, ->3 Tabs. Verified: no space-runs sent, correct Tab counts, 200/200 convergence.\nSince your IDE also auto-indents, one thing to watch: pressing Tab and the editor's auto-indent could still stack. If you still see over-indentation, the cleaner option for auto-indenting editors is to send nothing for indentation (let the IDE do it entirely) - tell me and I'll switch it, or make it a config toggle (Tab / none).\n\nAll on the err-modeling branch; flake8 clean, App + config dialog build, full engine convergence intact."
+  "text": "That wasn't the root cause. I noticed that the first language button disappears, not just the Previous button. Instead, there's an empty space at the end of the language button list in the swiper."
 }
