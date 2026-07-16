@@ -167,3 +167,32 @@ class HumanTyper:
             elif "TYPED" in action:  # Handles TYPED, TYPED_ERROR
                 char = _extract_char(action)
                 selenium_element.send_keys(char)
+
+    def type_desktop(self, text: str, start_delay: float = 3.0) -> None:
+        if not isinstance(text, str) or len(text) == 0:
+            raise ValueError("text must be a non-empty string")
+
+        from pynput.keyboard import Controller, Key
+
+        keyboard = Controller()
+        typer = MarkovTyper(text, target_wpm=self.wpm, layout=self.layout, rhythm=self.rhythm)
+        _, history = typer.run()
+
+        time.sleep(start_delay)  # focus the target window during this pause
+
+        last_time = 0.0
+
+        for t, action, _ in history:
+            delay = t - last_time
+            if delay > 0:
+                time.sleep(delay)
+            last_time = t
+
+            if "BACKSPACE" in action:
+                keyboard.tap(Key.backspace)
+            elif "ARROW_LEFT" in action:
+                keyboard.tap(Key.left)
+            elif "ARROW_RIGHT" in action:
+                keyboard.tap(Key.right)
+            elif "TYPED" in action:  # TYPED, TYPED_ERROR, TYPED_SWAP, TYPED_OMIT, etc.
+                keyboard.type(_extract_char(action))
