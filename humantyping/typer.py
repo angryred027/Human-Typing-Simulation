@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from .config import (
     DEFAULT_WPM, WPM_STD, AVG_WORD_LENGTH,
-    PROB_AUTOCOMPLETE, AUTOCOMPLETE_MIN_LEN, AUTOCOMPLETE_PREFIX, TIME_COMPLETION_PAUSE,
+    PROB_AUTOCOMPLETE, AUTOCOMPLETE_MIN_LEN, AUTOCOMPLETE_PREFIX, TIME_COMPLETION_PAUSE, TIME_TAB,
     PROB_ERROR, PROB_SWAP_ERROR, PROB_NOTICE_ERROR,
     PROB_MISSED_SHIFT, PROB_SHIFT_HELD,
     PROB_OMISSION, PROB_INSERTION, PROB_DOUBLING,
@@ -58,6 +58,7 @@ class MarkovTyper:
         self.keyboard = KeyboardLayout(layout)
         self.rhythm = RHYTHM_PRESETS[rhythm]
         self.rhythm_name = rhythm
+        self.indent_unit = self._detect_indent_unit() if rhythm == "coding" else 4
         self.state = TypingState(target_text=target_text)
 
         self.session_wpm = np.random.normal(target_wpm, WPM_STD)
@@ -77,6 +78,11 @@ class MarkovTyper:
         while end < len(self.target_text) and self.target_text[end] != ' ':
             end += 1
         return self.target_text[start:end]
+
+    def _detect_indent_unit(self) -> int:
+        units = [n for n in (len(ln) - len(ln.lstrip(' ')) for ln in self.target_text.split('\n'))
+                 if n]
+        return min(units) if units else 4
 
     def _at_word_start(self) -> bool:
         i = self.state.mental_cursor_pos
@@ -249,6 +255,25 @@ class MarkovTyper:
             return None
 
         char_intended = self.target_text[self.state.mental_cursor_pos]
+
+        # Coding indentation: press Tab per indent level instead of typing the
+        # leading spaces (the IDE handles indentation).
+        if (self.rhythm_name == "coding" and char_intended in ' \t'
+                and self.state.current_text == self.target_text[:self.state.mental_cursor_pos]
+                and (self.state.mental_cursor_pos == 0
+                     or self.target_text[self.state.mental_cursor_pos - 1] == '\n')):
+            j = self.state.mental_cursor_pos
+            while j < len(self.target_text) and self.target_text[j] in ' \t':
+                j += 1
+            ws = self.target_text[self.state.mental_cursor_pos:j]
+            tabs = ws.count('\t') + round(ws.count(' ') / self.indent_unit)
+            self.state.total_time += tabs * TIME_TAB
+            self.state.current_text += ws
+            self.state.last_char_typed = ws[-1]
+            event = (self.state.total_time, f"TAB_INDENT '{tabs}|{ws}'", self.state.current_text)
+            self.state.history.append(event)
+            self.state.mental_cursor_pos += len(ws)
+            return event
 
         # Coding autocomplete: finish a repeated identifier from a prefix + accept
         # key instead of typing it in full (IDE completion, ~30% accept rate).

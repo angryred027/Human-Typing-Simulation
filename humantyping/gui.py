@@ -2,7 +2,7 @@ import os
 import sys
 import threading
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 
 import winsound
 import pystray
@@ -196,6 +196,7 @@ class ConfigDialog(tk.Toplevel):
             "prob_notice_error": tk.StringVar(value=str(s["prob_notice_error"])),
             "prob_word_level_correction": tk.StringVar(value=str(s["prob_word_level_correction"])),
             "start_delay": tk.StringVar(value=str(s["start_delay"])),
+            "coding_indent": tk.StringVar(value=s.get("coding_indent", "tab")),
             "graph_chars": tk.StringVar(value=str(s.get("graph_chars", 120))),
             "paraphrase_model_path": tk.StringVar(value=s.get("paraphrase_model_path", "")),
         }
@@ -212,6 +213,7 @@ class ConfigDialog(tk.Toplevel):
             ("Notice error (restart)", "prob_notice_error", None),
             ("Word-level fix (restart)", "prob_word_level_correction", None),
             ("Start delay (s)", "start_delay", None),
+            ("Coding indent", "coding_indent", ["tab", "none"]),
         ]
         r = 0
         for label, key, choices in rows:
@@ -235,6 +237,8 @@ class ConfigDialog(tk.Toplevel):
         pf.columnconfigure(0, weight=1)
         ttk.Entry(pf, textvariable=self.vars["paraphrase_model_path"]).grid(row=0, column=0, sticky="ew")
         ttk.Button(pf, text="...", width=3, command=self._browse_model).grid(row=0, column=1, padx=(4, 0))
+        self._test_btn = ttk.Button(pf, text="Test", width=5, command=self._test_model)
+        self._test_btn.grid(row=0, column=2, padx=(4, 0))
         r += 1
 
         ttk.Label(frm, text="Last typing rhythm").grid(row=r, column=0, columnspan=2, sticky="w", pady=(10, 2))
@@ -263,10 +267,37 @@ class ConfigDialog(tk.Toplevel):
         if path:
             self.vars["paraphrase_model_path"].set(path)
 
+    def _test_model(self):
+        path = self.vars["paraphrase_model_path"].get().strip()
+        if not path:
+            messagebox.showwarning("Paraphrase model", "Set a model folder first.", parent=self)
+            return
+        self._test_btn.config(state="disabled", text="...")
+
+        def work():
+            from .paraphrase import Paraphraser
+            try:
+                sample = Paraphraser(path).test_load()
+                result = ("ok", f"Model loaded successfully.\n\nSample paraphrase:\n{sample}")
+            except Exception as e:
+                result = ("fail", f"Failed to load model:\n\n{type(e).__name__}: {e}")
+            self.after(0, lambda: self._test_done(result))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _test_done(self, result):
+        self._test_btn.config(state="normal", text="Test")
+        kind, msg = result
+        if kind == "ok":
+            messagebox.showinfo("Paraphrase model", msg, parent=self)
+        else:
+            messagebox.showerror("Paraphrase model", msg, parent=self)
+
     def on_save(self):
         s = self.app.settings
         s["rhythm"] = self.vars["rhythm"].get()
         s["layout"] = self.vars["layout"].get()
+        s["coding_indent"] = self.vars["coding_indent"].get()
         s["paraphrase_model_path"] = self.vars["paraphrase_model_path"].get()
         for key, cast in (("wpm", float), ("base_error_rate", float), ("prob_notice_error", float),
                           ("prob_word_level_correction", float), ("start_delay", float),
@@ -422,7 +453,8 @@ class App(tk.Tk):
         self.controller.start(text=text, wpm=self.settings["wpm"], rhythm=self.settings["rhythm"],
                               layout=self.settings["layout"], start_delay=self.settings["start_delay"],
                               focus_once=focus_once, is_focused=is_focused,
-                              make_paraphraser=make_paraphraser)
+                              make_paraphraser=make_paraphraser,
+                              coding_indent=self.settings.get("coding_indent", "tab"))
 
     def on_cancel(self):
         self.controller.cancel()

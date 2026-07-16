@@ -15,15 +15,22 @@ class Paraphraser:
             self._tok = AutoTokenizer.from_pretrained(self.model_path)
             self._model = AutoModelForSeq2SeqLM.from_pretrained(self.model_path)
 
+    def _generate(self, text: str) -> str:
+        self._ensure()
+        import torch
+        ids = self._tok(f"paraphrase: {text}", return_tensors="pt",
+                        truncation=True, max_length=128).input_ids
+        with torch.no_grad():
+            out = self._model.generate(ids, max_length=128, do_sample=True,
+                                       top_p=0.95, temperature=0.9, num_return_sequences=1)
+        return self._tok.decode(out[0], skip_special_tokens=True).strip()
+
     def paraphrase(self, text: str) -> str | None:
         try:
-            self._ensure()
-            import torch
-            ids = self._tok(f"paraphrase: {text}", return_tensors="pt",
-                            truncation=True, max_length=128).input_ids
-            with torch.no_grad():
-                out = self._model.generate(ids, max_length=128, do_sample=True,
-                                           top_p=0.95, temperature=0.9, num_return_sequences=1)
-            return self._tok.decode(out[0], skip_special_tokens=True).strip()
+            return self._generate(text)
         except Exception:
             return None
+
+    def test_load(self) -> str:
+        """Load the model and return a sample paraphrase. Raises on failure."""
+        return self._generate("This is a simple test sentence.")

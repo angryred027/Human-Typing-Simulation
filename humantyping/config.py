@@ -16,6 +16,7 @@ SETTINGS_DEFAULTS = {
     "start_delay": 3.0,
     "hotkey": "ctrl+alt+t",
     "graph_chars": 120,
+    "coding_indent": "tab",
     "paraphrase_model_path": "",
     "text": "",
 }
@@ -55,6 +56,7 @@ PROB_NOTICE_ERROR = _settings["prob_notice_error"]
 PROB_WORD_LEVEL_CORRECTION = _settings["prob_word_level_correction"]
 START_DELAY = _settings["start_delay"]
 HOTKEY = _settings["hotkey"]
+CODING_INDENT = _settings["coding_indent"]
 PARAPHRASE_MODEL_PATH = _settings["paraphrase_model_path"]
 
 # Average speed spread and word length
@@ -157,6 +159,7 @@ PROB_AUTOCOMPLETE = 0.3
 AUTOCOMPLETE_MIN_LEN = 5     # only autocomplete identifiers at least this long
 AUTOCOMPLETE_PREFIX = 3      # chars typed before accepting the completion
 TIME_COMPLETION_PAUSE = 0.25  # glance at the popup before accepting
+TIME_TAB = 0.12             # per Tab press when indenting a line (coding)
 
 # Writing reformulation: draft a paraphrase of a sentence, then delete it and
 # type the intended one (Hayes-Flower within-sentence revision). Needs a local

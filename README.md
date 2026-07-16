@@ -73,6 +73,7 @@ research-derived model internals live in `humantyping/config.py`.
 | `start_delay`                | number                                     | `3.0`          | Seconds to focus the target window before typing.                       | live    |
 | `hotkey`                     | string                                     | `"ctrl+alt+t"` | Global Start/Pause/Resume shortcut (e.g. `ctrl+shift+j`).               | live    |
 | `graph_chars`                | number                                     | `120`          | How many recent characters the rhythm graph shows (20–2000).            | live    |
+| `coding_indent`              | `"tab"` \| `"none"`                        | `"tab"`        | Coding indentation: press Tab per level, or send nothing (let the IDE auto-indent). | live    |
 | `paraphrase_model_path`      | string                                     | `""`           | Folder with a local T5 paraphrase model (writing reformulation). Empty = off. | live    |
 | `base_error_rate`            | number                                     | `0.03`         | Master typo rate; scales all error types by research ratios.            | restart |
 | `prob_notice_error`          | number                                     | `0.4`          | Chance an error is caught immediately vs. deferred to a word-level fix. | restart |

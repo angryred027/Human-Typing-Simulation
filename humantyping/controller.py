@@ -50,6 +50,7 @@ class TypingController:
         self.state = "idle"
         self.target_text = ""
         self._is_focused = None
+        self._coding_indent = "tab"
         self._thread: threading.Thread | None = None
         self._pause = threading.Event()
         self._cancel = threading.Event()
@@ -61,13 +62,14 @@ class TypingController:
         return self._pause.is_set()
 
     def start(self, text, wpm, rhythm, layout, start_delay, focus_once=None, is_focused=None,
-              make_paraphraser=None) -> None:
+              make_paraphraser=None, coding_indent="tab") -> None:
         if self.is_running():
             return
         self._pause.clear()
         self._cancel.clear()
         self.target_text = text
         self._is_focused = is_focused
+        self._coding_indent = coding_indent
         self._thread = threading.Thread(
             target=self._run, args=(text, wpm, rhythm, layout, start_delay, focus_once, make_paraphraser),
             daemon=True)
@@ -172,6 +174,11 @@ class TypingController:
                 keyboard.tap(Key.left)
             elif "ARROW_RIGHT" in action:
                 keyboard.tap(Key.right)
+            elif "TAB_INDENT" in action:
+                if self._coding_indent != "none":
+                    n = int(_extract_char(action).split("|", 1)[0])
+                    for _ in range(n):
+                        keyboard.tap(Key.tab)
             elif "TYPED_COMPLETE" in action:
                 prefix = _extract_char(action).split("|", 1)[0]
                 for ch in to_ascii(prefix):
