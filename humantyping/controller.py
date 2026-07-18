@@ -121,10 +121,11 @@ class TypingController:
 
     def _run(self, text, wpm, rhythm, layout, start_delay, focus_once, make_paraphraser) -> None:
         from pynput.keyboard import Controller, Key
+        from . import winutil
 
         text = to_ascii(text)
         paraphraser = None
-        if make_paraphraser and rhythm == "writing":
+        if make_paraphraser:
             self._set_state("loading")
             paraphraser = make_paraphraser()
         try:
@@ -182,15 +183,16 @@ class TypingController:
             elif "TYPED_COMPLETE" in action:
                 prefix = _extract_char(action).split("|", 1)[0]
                 for ch in to_ascii(prefix):
-                    keyboard.type(ch)
+                    winutil.send_char(ch)
                 keyboard.tap(Key.enter)
             elif "TYPED" in action:
                 for ch in to_ascii(_extract_char(action)):
-                    if ch == "\n" and newline_shift:
-                        with keyboard.pressed(Key.shift):
-                            keyboard.tap(Key.enter)
+                    if ch == "\n":
+                        winutil.send_key(0x0D, shift=newline_shift)
+                    elif ch == "\t":
+                        winutil.send_key(0x09)
                     else:
-                        keyboard.type(ch)
+                        winutil.send_char(ch)
 
             typed = len(current)
             if self.on_progress:
