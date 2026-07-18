@@ -10,9 +10,6 @@ SETTINGS_DEFAULTS = {
     "wpm": 60,
     "layout": "qwerty",
     "rhythm": "messaging",
-    "base_error_rate": 0.03,
-    "prob_notice_error": 0.4,
-    "prob_word_level_correction": 0.7,
     "start_delay": 3.0,
     "hotkey": "ctrl+alt+t",
     "graph_chars": 120,
@@ -51,9 +48,6 @@ _settings = load_settings()
 DEFAULT_WPM = _settings["wpm"]
 DEFAULT_LAYOUT = _settings["layout"]
 DEFAULT_RHYTHM = _settings["rhythm"]
-BASE_ERROR_RATE = _settings["base_error_rate"]
-PROB_NOTICE_ERROR = _settings["prob_notice_error"]
-PROB_WORD_LEVEL_CORRECTION = _settings["prob_word_level_correction"]
 START_DELAY = _settings["start_delay"]
 HOTKEY = _settings["hotkey"]
 CODING_INDENT = _settings["coding_indent"]
@@ -63,13 +57,10 @@ PARAPHRASE_MODEL_PATH = _settings["paraphrase_model_path"]
 WPM_STD = 10
 AVG_WORD_LENGTH = 5
 
-# Structural error rates follow Dhakal et al. (CHI 2018, 136M keystrokes):
-# substitution (1.65%) > omission (0.8%) > insertion (0.67%); transposition rarest.
-PROB_ERROR = BASE_ERROR_RATE * 1.00       # XY: substitution with a neighbouring key
-PROB_OMISSION = BASE_ERROR_RATE * 0.48    # OX: a letter is skipped ("major" -> "maor")
-PROB_INSERTION = BASE_ERROR_RATE * 0.25   # XO: an extra neighbouring key ("this" -> "thjis")
-PROB_DOUBLING = BASE_ERROR_RATE * 0.15    # DOUB12: a letter typed twice ("operation" -> "opperation")
-PROB_SWAP_ERROR = BASE_ERROR_RATE * 0.10  # SWAP: two adjacent letters interchanged ("the" -> "hte")
+# Structural error-type mix (universal), from Dhakal et al. (CHI 2018, 136M
+# keystrokes): substitution (1.65%) > omission (0.8%) > insertion (0.67%);
+# transposition rarest. A rhythm's base_error_rate is split by these weights.
+ERROR_WEIGHTS = {"error": 1.00, "omission": 0.48, "insertion": 0.25, "doubling": 0.15, "swap": 0.10}
 
 # Case errors (Shift mistakes on letters) — correct letter, wrong case.
 PROB_MISSED_SHIFT = 0.02   # uppercase intended, typed lowercase ("The" -> "the")
@@ -125,29 +116,47 @@ TIME_UPPERCASE_PENALTY = 0.2
 FATIGUE_FACTOR = 1.0005
 FATIGUE_CAP = 1.5  # Maximum fatigue multiplier
 
-# Typing rhythm. Pause durations follow a mixture of log-normal components tied
-# to text location (Baaijen et al. 2012): mechanical within words, lexical
-# between words, planning at sentence/paragraph boundaries. Each preset sets the
-# boundary pause (median seconds, log sigma) and planning_fluency — how much a
-# planning pause lowers the error rate of the burst it precedes (thinking-then-fluent).
+# Typing rhythm. Each preset carries the research-derived metrics for that
+# context, so switching rhythm switches the whole model — no manual tuning:
+#   pauses (median seconds, log sigma) follow a mixture of log-normal components
+#     tied to text location (Baaijen et al. 2012).
+#   planning_fluency — how much a planning pause lowers the error rate after it.
+#   base_error_rate — split across error types by ERROR_WEIGHTS.
+#   prob_notice_error / prob_word_level_correction — correction style. Messaging
+#     is real-time and lightly edited (more immediate fixes, less reformulation);
+#     writing is planned and revised (more deferred, word-level revision).
+#   prob_paraphrase — chance a sentence is drafted then revised to the target
+#     (composition reformulates more than instant messaging; code not at all).
 RHYTHM_PRESETS = {
     "messaging": {
         "word_pause": (0.10, 0.4),
         "sentence_pause": (0.30, 0.5),
         "paragraph_pause": (0.5, 0.5),
         "planning_fluency": 0.9,
+        "base_error_rate": 0.03,
+        "prob_notice_error": 0.6,
+        "prob_word_level_correction": 0.4,
+        "prob_paraphrase": 0.10,
     },
     "writing": {
         "word_pause": (0.22, 0.5),
         "sentence_pause": (1.1, 0.6),
         "paragraph_pause": (2.4, 0.6),
         "planning_fluency": 0.5,
+        "base_error_rate": 0.03,
+        "prob_notice_error": 0.4,
+        "prob_word_level_correction": 0.7,
+        "prob_paraphrase": 0.25,
     },
     "coding": {
         "word_pause": (0.30, 0.6),
         "sentence_pause": (0.9, 0.6),
         "paragraph_pause": (2.6, 0.7),   # longer thinking breaks between lines
         "planning_fluency": 0.6,
+        "base_error_rate": 0.035,
+        "prob_notice_error": 0.5,
+        "prob_word_level_correction": 0.6,
+        "prob_paraphrase": 0.0,
     },
 }
 FLUENCY_BURST_LEN = 6  # chars after a planning pause that stay cleaner
@@ -161,8 +170,8 @@ AUTOCOMPLETE_PREFIX = 3      # chars typed before accepting the completion
 TIME_COMPLETION_PAUSE = 0.25  # glance at the popup before accepting
 TIME_TAB = 0.12             # per Tab press when indenting a line (coding)
 
-# Writing reformulation: draft a paraphrase of a sentence, then delete it and
-# type the intended one (Hayes-Flower within-sentence revision). Needs a local
-# T5 paraphrase model; disabled when no model path is set.
-PROB_PARAPHRASE = 0.25
-TIME_BULK_BACKSPACE = 0.045  # per-char delete time when clearing a draft (held key)
+# Writing/messaging reformulation: draft a paraphrase of a sentence, then revise
+# it to the target — deleting only from the divergence point (immediate,
+# leading-edge revision; Thorson 2000), keeping the shared leading words. Needs a
+# local T5 paraphrase model; per-rhythm rate in RHYTHM_PRESETS["prob_paraphrase"].
+TIME_BULK_BACKSPACE = 0.045  # per-char delete time when revising a draft (held key)

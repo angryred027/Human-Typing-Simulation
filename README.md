@@ -76,15 +76,14 @@ research-derived model internals live in `humantyping/config.py`.
 | `hotkey`                     | string                                     | `"ctrl+alt+t"` | Global Start/Pause/Resume shortcut (e.g. `ctrl+shift+j`).               | live    |
 | `graph_chars`                | number                                     | `120`          | How many recent characters the rhythm graph shows (20–2000).            | live    |
 | `coding_indent`              | `"tab"` \| `"none"`                        | `"tab"`        | Coding indentation: press Tab per level, or send nothing (let the IDE auto-indent). | live    |
-| `paraphrase_model_path`      | string                                     | `""`           | Folder with a local T5 paraphrase model (writing reformulation). Empty = off. | live    |
-| `base_error_rate`            | number                                     | `0.03`         | Master typo rate; scales all error types by research ratios.            | restart |
-| `prob_notice_error`          | number                                     | `0.4`          | Chance an error is caught immediately vs. deferred to a word-level fix. | restart |
-| `prob_word_level_correction` | number                                     | `0.7`          | Share of deferred fixes done via arrow-key navigation.                  | restart |
+| `paraphrase_model_path`      | string                                     | `""`           | Folder with a local T5 paraphrase model (writing/messaging reformulation). Empty = off. | live    |
 
-"live" fields take effect on the next run; "restart" fields are read at startup
-(restart the app to apply). The rhythm presets and all model constants
-(timing distributions, error weights, speed factors) are documented inline in
-`humantyping/config.py`.
+All fields are **live** (take effect on the next run). Per-rhythm behaviour —
+error rate, correction style, and reformulation (paraphrase) rate — is **not**
+manually configured: each `rhythm` preset in `humantyping/config.py` carries its
+own research-derived metrics, so switching rhythm switches the whole model.
+Those presets and all model constants (pause mixtures, error-type weights, speed
+factors) are documented inline in `humantyping/config.py`.
 
 ## Paraphrase model (optional, writing rhythm)
 

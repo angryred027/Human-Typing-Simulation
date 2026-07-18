@@ -67,6 +67,90 @@ user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
 user32.AttachThreadInput.restype = wintypes.BOOL
 user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
 
+# Scan-code keyboard injection. Remote desktop / RDP / games forward physical
+# scan codes, not the Unicode/VK path pynput.type() uses, so uppercase and
+# shifted characters otherwise lose their Shift on the remote side.
+ULONG_PTR = ctypes.c_size_t
+INPUT_KEYBOARD = 1
+KEYEVENTF_EXTENDEDKEY = 0x0001
+KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_UNICODE = 0x0004
+KEYEVENTF_SCANCODE = 0x0008
+VK_SHIFT = 0x10
+MAPVK_VK_TO_VSC = 0
+
+
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG), ("mouseData", wintypes.DWORD),
+                ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD), ("dwExtraInfo", ULONG_PTR)]
+
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD), ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD), ("dwExtraInfo", ULONG_PTR)]
+
+
+class HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [("uMsg", wintypes.DWORD), ("wParamL", wintypes.WORD), ("wParamH", wintypes.WORD)]
+
+
+class _INPUTUNION(ctypes.Union):
+    _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT), ("hi", HARDWAREINPUT)]
+
+
+class INPUT(ctypes.Structure):
+    _fields_ = [("type", wintypes.DWORD), ("u", _INPUTUNION)]
+
+
+user32.SendInput.restype = wintypes.UINT
+user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+
+
+def _key_event(scan, up, extended=False):
+    flags = KEYEVENTF_SCANCODE | (KEYEVENTF_KEYUP if up else 0) | (KEYEVENTF_EXTENDEDKEY if extended else 0)
+    return INPUT(type=INPUT_KEYBOARD, u=_INPUTUNION(ki=KEYBDINPUT(0, scan & 0xFFFF, flags, 0, 0)))
+
+
+def _unicode_event(codepoint, up):
+    flags = KEYEVENTF_UNICODE | (KEYEVENTF_KEYUP if up else 0)
+    return INPUT(type=INPUT_KEYBOARD, u=_INPUTUNION(ki=KEYBDINPUT(0, codepoint, flags, 0, 0)))
+
+
+def _send(events):
+    arr = (INPUT * len(events))(*events)
+    user32.SendInput(len(events), arr, ctypes.sizeof(INPUT))
+
+
+def send_char(ch):
+    r = user32.VkKeyScanW(ch)
+    vk = r & 0xFF
+    scan = user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC) if r != -1 else 0
+    if r == -1 or vk == 0xFF or scan == 0:
+        cp = ord(ch)
+        _send([_unicode_event(cp, False), _unicode_event(cp, True)])
+        return
+    shift = bool((r >> 8) & 1)
+    shift_scan = user32.MapVirtualKeyW(VK_SHIFT, MAPVK_VK_TO_VSC)
+    seq = []
+    if shift:
+        seq.append(_key_event(shift_scan, False))
+    seq += [_key_event(scan, False), _key_event(scan, True)]
+    if shift:
+        seq.append(_key_event(shift_scan, True))
+    _send(seq)
+
+
+def send_key(vk, shift=False, extended=False):
+    scan = user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
+    shift_scan = user32.MapVirtualKeyW(VK_SHIFT, MAPVK_VK_TO_VSC)
+    seq = []
+    if shift:
+        seq.append(_key_event(shift_scan, False))
+    seq += [_key_event(scan, False, extended), _key_event(scan, True, extended)]
+    if shift:
+        seq.append(_key_event(shift_scan, True))
+    _send(seq)
+
 
 def get_window_app_name(hwnd):
     _, pid = win32process.GetWindowThreadProcessId(hwnd)

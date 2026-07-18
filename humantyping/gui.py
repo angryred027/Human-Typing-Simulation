@@ -193,9 +193,6 @@ class ConfigDialog(tk.Toplevel):
             "wpm": tk.StringVar(value=str(s["wpm"])),
             "rhythm": tk.StringVar(value=s["rhythm"]),
             "layout": tk.StringVar(value=s["layout"]),
-            "base_error_rate": tk.StringVar(value=str(s["base_error_rate"])),
-            "prob_notice_error": tk.StringVar(value=str(s["prob_notice_error"])),
-            "prob_word_level_correction": tk.StringVar(value=str(s["prob_word_level_correction"])),
             "start_delay": tk.StringVar(value=str(s["start_delay"])),
             "coding_indent": tk.StringVar(value=s.get("coding_indent", "tab")),
             "graph_chars": tk.StringVar(value=str(s.get("graph_chars", 120))),
@@ -210,9 +207,6 @@ class ConfigDialog(tk.Toplevel):
             ("Speed (WPM)", "wpm", None),
             ("Rhythm", "rhythm", sorted(config.RHYTHM_PRESETS)),
             ("Layout", "layout", ["qwerty", "azerty"]),
-            ("Error rate (restart)", "base_error_rate", None),
-            ("Notice error (restart)", "prob_notice_error", None),
-            ("Word-level fix (restart)", "prob_word_level_correction", None),
             ("Start delay (s)", "start_delay", None),
             ("Coding indent", "coding_indent", ["tab", "none"]),
         ]
@@ -232,7 +226,7 @@ class ConfigDialog(tk.Toplevel):
                     command=self._redraw).grid(row=r, column=1, sticky="ew", pady=3, padx=(12, 0))
         r += 1
 
-        ttk.Label(frm, text="Paraphrase model (writing)").grid(row=r, column=0, sticky="w", pady=3)
+        ttk.Label(frm, text="Paraphrase model").grid(row=r, column=0, sticky="w", pady=3)
         pf = ttk.Frame(frm)
         pf.grid(row=r, column=1, sticky="ew", pady=3, padx=(12, 0))
         pf.columnconfigure(0, weight=1)
@@ -326,9 +320,7 @@ class ConfigDialog(tk.Toplevel):
         s["layout"] = self.vars["layout"].get()
         s["coding_indent"] = self.vars["coding_indent"].get()
         s["paraphrase_model_path"] = self.vars["paraphrase_model_path"].get()
-        for key, cast in (("wpm", float), ("base_error_rate", float), ("prob_notice_error", float),
-                          ("prob_word_level_correction", float), ("start_delay", float),
-                          ("graph_chars", int)):
+        for key, cast in (("wpm", float), ("start_delay", float), ("graph_chars", int)):
             try:
                 s[key] = cast(self.vars[key].get())
             except ValueError:
@@ -489,7 +481,7 @@ class App(tk.Tk):
         is_focused = (lambda: winutil.get_foreground() == hwnd) if hwnd else None
         make_paraphraser = None
         model_path = self.settings.get("paraphrase_model_path", "")
-        if model_path and self.settings["rhythm"] == "writing":
+        if model_path and config.RHYTHM_PRESETS[self.settings["rhythm"]].get("prob_paraphrase", 0) > 0:
             from .paraphrase import Paraphraser
             make_paraphraser = lambda: Paraphraser(model_path)
         self.controller.start(text=text, wpm=self.settings["wpm"], rhythm=self.settings["rhythm"],

@@ -5,11 +5,9 @@ import numpy as np
 from dataclasses import dataclass, field
 
 from .config import (
-    DEFAULT_WPM, WPM_STD, AVG_WORD_LENGTH,
+    DEFAULT_WPM, WPM_STD, AVG_WORD_LENGTH, ERROR_WEIGHTS,
     PROB_AUTOCOMPLETE, AUTOCOMPLETE_MIN_LEN, AUTOCOMPLETE_PREFIX, TIME_COMPLETION_PAUSE, TIME_TAB,
-    PROB_ERROR, PROB_SWAP_ERROR, PROB_NOTICE_ERROR,
     PROB_MISSED_SHIFT, PROB_SHIFT_HELD,
-    PROB_OMISSION, PROB_INSERTION, PROB_DOUBLING,
     SPEED_BOOST_COMMON_WORD, SPEED_PENALTY_COMPLEX_WORD,
     SPEED_BOOST_REPETITION, SPEED_BOOST_CLOSE_KEYS, SPEED_BOOST_BIGRAM,
     KEYSTROKE_LOG_SIGMA, TIME_BACKSPACE_MEAN, TIME_BACKSPACE_STD,
@@ -17,13 +15,13 @@ from .config import (
     TIME_DIRECT_ACCENT_PENALTY, TIME_COMPOSED_ACCENT_PENALTY,
     TIME_UPPERCASE_PENALTY,
     FATIGUE_FACTOR, FATIGUE_CAP,
-    DRIFT_CORRECTION_PROB, PROB_WORD_LEVEL_CORRECTION, COMPLEX_WORD_ERROR_MULT,
+    DRIFT_CORRECTION_PROB, COMPLEX_WORD_ERROR_MULT,
     COMMON_WORD_ERROR_MULT, COMPOSED_ACCENT_ERROR_MULT, PUNCTUATION_ERROR_MULT,
     FAR_KEY_PENALTY, FAR_KEY_THRESHOLD, CLOSE_KEY_THRESHOLD,
     MIN_KEYSTROKE_TIME, MIN_REACTION_TIME, MIN_BACKSPACE_TIME, MIN_ARROW_TIME,
     MIN_SPEED_MULTIPLIER,
     RHYTHM_PRESETS, DEFAULT_RHYTHM, FLUENCY_BURST_LEN,
-    PROB_PARAPHRASE, TIME_BULK_BACKSPACE,
+    TIME_BULK_BACKSPACE,
 )
 from .keyboard import KeyboardLayout
 from .language import get_word_difficulty, is_common_bigram
@@ -59,6 +57,15 @@ class MarkovTyper:
         self.rhythm = RHYTHM_PRESETS[rhythm]
         self.rhythm_name = rhythm
         self.indent_unit = self._detect_indent_unit() if rhythm == "coding" else 4
+
+        base = self.rhythm["base_error_rate"]
+        self.prob_error = base * ERROR_WEIGHTS["error"]
+        self.prob_omission = base * ERROR_WEIGHTS["omission"]
+        self.prob_insertion = base * ERROR_WEIGHTS["insertion"]
+        self.prob_doubling = base * ERROR_WEIGHTS["doubling"]
+        self.prob_swap = base * ERROR_WEIGHTS["swap"]
+        self.prob_notice = self.rhythm["prob_notice_error"]
+        self.prob_word_level = self.rhythm["prob_word_level_correction"]
         self.state = TypingState(target_text=target_text)
 
         self.session_wpm = np.random.normal(target_wpm, WPM_STD)
@@ -212,7 +219,7 @@ class MarkovTyper:
 
                 # Immediate reaction (1 char past error)
                 elif distance == 1:
-                    if np.random.random() < PROB_NOTICE_ERROR:
+                    if np.random.random() < self.prob_notice:
                         should_correct = True
 
             if should_correct:
@@ -227,7 +234,7 @@ class MarkovTyper:
                 distance = len(self.state.current_text) - first_error_pos
                 if ("BACKSPACE" not in last_action and distance >= 2
                         and self._is_clean_substitution(first_error_pos)
-                        and np.random.random() < PROB_WORD_LEVEL_CORRECTION):
+                        and np.random.random() < self.prob_word_level):
                     self.state.word_fix_pos = first_error_pos
                     self.state.word_fix_phase = "seek"
                     self.state.caret_pos = len(self.state.current_text)
@@ -321,7 +328,7 @@ class MarkovTyper:
         if len(self.target_text) > self.state.mental_cursor_pos + 1:
             char_after = self.target_text[self.state.mental_cursor_pos + 1]
             if char_after != ' ' and char_after != char_intended:
-                if np.random.random() < PROB_SWAP_ERROR * error_scale:
+                if np.random.random() < self.prob_swap * error_scale:
                     # Type the anticipated character first
                     dt1 = self._calculate_keystroke_time(char_after)
                     self.state.total_time += dt1
@@ -341,7 +348,7 @@ class MarkovTyper:
         # Omission (OX): skip a letter, typing the next one in its place ("major" -> "maor")
         if char_intended.isalpha() and self.state.mental_cursor_pos + 1 < len(self.target_text):
             char_after = self.target_text[self.state.mental_cursor_pos + 1]
-            if char_after != ' ' and np.random.random() < PROB_OMISSION * error_scale:
+            if char_after != ' ' and np.random.random() < self.prob_omission * error_scale:
                 dt = self._calculate_keystroke_time(char_after)
                 self.state.total_time += dt
                 self.state.current_text += char_after
@@ -352,7 +359,7 @@ class MarkovTyper:
                 return event
 
         # Insertion (XO): an extra neighbouring key before the intended letter ("this" -> "thjis")
-        if char_intended != ' ' and np.random.random() < PROB_INSERTION * error_scale:
+        if char_intended != ' ' and np.random.random() < self.prob_insertion * error_scale:
             extra = self.keyboard.get_random_neighbor(char_intended)
             dt = self._calculate_keystroke_time(extra)
             self.state.total_time += dt
@@ -363,7 +370,7 @@ class MarkovTyper:
             return event
 
         # Doubling (DOUB12): type a single letter twice ("operation" -> "opperation")
-        if char_intended.isalpha() and np.random.random() < PROB_DOUBLING * error_scale:
+        if char_intended.isalpha() and np.random.random() < self.prob_doubling * error_scale:
             dt1 = self._calculate_keystroke_time(char_intended)
             self.state.total_time += dt1
             self.state.current_text += char_intended
@@ -377,7 +384,7 @@ class MarkovTyper:
             return event
 
         # Normal Typing (Success or Error)
-        current_prob_error = PROB_ERROR
+        current_prob_error = self.prob_error
         word_diff = get_word_difficulty(self._get_current_word_context() or "")
         if word_diff == "complex":
             current_prob_error *= COMPLEX_WORD_ERROR_MULT
@@ -506,19 +513,31 @@ def _emit_segment(history, seg, prefix, t_off, wpm, layout, rhythm):
     return t_off + total
 
 
-def _emit_delete(history, draft, prefix, t_off):
+def _revision_keep(draft, target):
+    """Longest shared leading run of draft and target, trimmed back to a word
+    boundary — the point a writer backspaces to (leading-edge revision)."""
+    n = 0
+    while n < len(draft) and n < len(target) and draft[n] == target[n]:
+        n += 1
+    cut = draft.rfind(' ', 0, n)
+    return cut + 1 if cut != -1 else 0
+
+
+def _emit_delete_to(history, draft, keep, prefix, t_off):
     t = t_off
-    for k in range(len(draft) - 1, -1, -1):
+    for k in range(len(draft) - 1, keep - 1, -1):
         t += TIME_BULK_BACKSPACE
         history.append((t, "BACKSPACE", prefix + draft[:k]))
     return t
 
 
 def build_history(text, target_wpm=DEFAULT_WPM, layout="qwerty", rhythm=DEFAULT_RHYTHM, paraphraser=None):
-    """Full keystroke history for the text. In the writing rhythm with a
-    paraphraser, some sentences are first drafted as a paraphrase, then deleted
-    and retyped correctly (Hayes-Flower within-sentence revision)."""
-    if rhythm != "writing" or paraphraser is None:
+    """Full keystroke history for the text. When the rhythm reformulates and a
+    paraphraser is set, some sentences are drafted as a paraphrase, then revised
+    to the target by deleting only from the divergence point (keeping the shared
+    leading words) — an immediate, leading-edge revision (Thorson 2000)."""
+    prob_paraphrase = RHYTHM_PRESETS[rhythm].get("prob_paraphrase", 0.0)
+    if paraphraser is None or prob_paraphrase <= 0:
         return MarkovTyper(text, target_wpm=target_wpm, layout=layout, rhythm=rhythm).run()
 
     history = [(0.0, "INIT", "")]
@@ -526,11 +545,18 @@ def build_history(text, target_wpm=DEFAULT_WPM, layout="qwerty", rhythm=DEFAULT_
     committed = ""
     for sent in _split_sentences(text):
         core = sent.strip()
-        if len(core) >= 12 and np.random.random() < PROB_PARAPHRASE:
+        if len(core) >= 12 and np.random.random() < prob_paraphrase:
             draft = paraphraser.paraphrase(core)
             if draft and draft.strip() and draft.strip().lower() != core.lower():
-                t_off = _emit_segment(history, draft, committed, t_off, target_wpm, layout, rhythm)
-                t_off = _emit_delete(history, draft, committed, t_off)
+                lead = sent[:len(sent) - len(sent.lstrip())]
+                draft_typed = lead + draft
+                t_off = _emit_segment(history, draft_typed, committed, t_off, target_wpm, layout, rhythm)
+                keep = _revision_keep(draft_typed, sent)
+                t_off = _emit_delete_to(history, draft_typed, keep, committed, t_off)
+                t_off = _emit_segment(history, sent[keep:], committed + sent[:keep],
+                                      t_off, target_wpm, layout, rhythm)
+                committed += sent
+                continue
         t_off = _emit_segment(history, sent, committed, t_off, target_wpm, layout, rhythm)
         committed += sent
     return t_off, history
